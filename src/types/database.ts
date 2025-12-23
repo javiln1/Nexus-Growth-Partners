@@ -1,5 +1,7 @@
 // Database types for Supabase tables
 
+export type UserRole = "executive" | "client" | "setter" | "closer";
+
 export interface Client {
   id: string;
   name: string;
@@ -8,9 +10,10 @@ export interface Client {
 
 export interface UserProfile {
   id: string;
-  client_id: string;
+  client_id: string | null;
   full_name: string | null;
-  role: "admin" | "viewer";
+  role: UserRole;
+  team_member_id: string | null;
   created_at: string;
 }
 
@@ -299,6 +302,26 @@ export interface AdPerformanceAggregated {
   cashCollected: number;
   roas: number;
   cpa: number;
+}
+
+// Scheduled Calls
+export interface ScheduledCall {
+  id: string;
+  client_id: string;
+  call_date: string;
+  call_time: string;
+  lead_name: string;
+  lead_email: string | null;
+  lead_phone: string | null;
+  closer_name: string;
+  investment_min: number | null;
+  investment_max: number | null;
+  investment_notes: string | null;
+  confirmed: boolean | null; // null = pending, true = confirmed, false = declined
+  status: "scheduled" | "completed" | "no_show" | "rescheduled" | "cancelled";
+  outcome: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface DashboardStats {

@@ -1,11 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { DMSetterDashboard } from "../_components/DMSetterDashboard";
-import { getThirtyDaysAgo } from "@/lib/utils";
+import { CallsTodayDashboard } from "../_components/CallsTodayDashboard";
 
-export default async function DMSetterPage() {
+export default async function CallsTodayPage() {
   const supabase = await createClient();
 
+  // Get authenticated user
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -14,6 +14,7 @@ export default async function DMSetterPage() {
     redirect("/login");
   }
 
+  // Get user profile
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
     .select("client_id, full_name, role")
@@ -25,30 +26,20 @@ export default async function DMSetterPage() {
     redirect("/login");
   }
 
-  const thirtyDaysAgo = getThirtyDaysAgo();
-
-  // Get team members
-  const { data: teamMembers } = await supabase
-    .from("team_members")
+  // Get today's calls
+  const today = new Date().toISOString().split("T")[0];
+  const { data: calls } = await supabase
+    .from("scheduled_calls")
     .select("*")
     .eq("client_id", profile.client_id)
-    .eq("active", true)
-    .order("name");
-
-  // Get setter reports (includes DM metrics from EOD reports)
-  const { data: reports } = await supabase
-    .from("setter_reports")
-    .select("*")
-    .eq("client_id", profile.client_id)
-    .gte("report_date", thirtyDaysAgo)
-    .order("report_date", { ascending: false });
+    .eq("call_date", today)
+    .order("call_time", { ascending: true });
 
   return (
-    <DMSetterDashboard
+    <CallsTodayDashboard
       userName={profile.full_name || user.email || "User"}
       clientId={profile.client_id}
-      teamMembers={teamMembers || []}
-      initialReports={reports || []}
+      initialCalls={calls || []}
     />
   );
 }

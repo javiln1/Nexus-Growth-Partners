@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/client";
 import { getThirtyDaysAgo, getToday, getYesterday, getWeekStart } from "@/lib/utils";
 import { WEEKLY_TARGETS } from "@/lib/constants";
 import type { TeamMember, SetterReport, CloserReport } from "@/types/database";
+import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
 
 import { Navbar } from "./Navbar";
 import { Filters } from "./Filters";
@@ -17,6 +19,9 @@ interface DashboardClientProps {
   userEmail: string;
   userName: string;
   clientId: string;
+  clientName?: string;
+  isExecutive?: boolean;
+  isDemo?: boolean;
   teamMembers: TeamMember[];
   initialSetterReports: SetterReport[];
   initialCloserReports: CloserReport[];
@@ -26,10 +31,14 @@ export function DashboardClient({
   userEmail,
   userName,
   clientId,
+  clientName,
+  isExecutive,
+  isDemo,
   teamMembers,
   initialSetterReports,
   initialCloserReports,
 }: DashboardClientProps) {
+  const backPath = isDemo ? "/demo" : isExecutive ? `/dashboard/client/${clientId}` : "/dashboard";
   // Active tab: Setters or Closers
   const [activeTab, setActiveTab] = useState<"Setter" | "Closer">("Setter");
 
@@ -173,6 +182,15 @@ export function DashboardClient({
       <Navbar userName={userName} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Back Link */}
+        <Link
+          href={backPath}
+          className="inline-flex items-center gap-2 text-white/50 hover:text-white mb-6 transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Dashboard
+        </Link>
+
         {/* Role Tabs */}
         <div className="flex mb-6 bg-white/[0.03] rounded-lg p-1 border border-white/10">
           <button

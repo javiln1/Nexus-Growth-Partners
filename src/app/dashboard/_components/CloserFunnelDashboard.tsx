@@ -5,69 +5,67 @@ import { Navbar } from "./Navbar";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import type { SetterReport, TeamMember } from "@/types/database";
+import type { CloserReport, TeamMember } from "@/types/database";
 import { getThirtyDaysAgo, formatCurrency } from "@/lib/utils";
-import { DM_BENCHMARKS, getDMRateStatus } from "@/lib/benchmarks";
+import { BENCHMARKS, getMetricStatus } from "@/lib/benchmarks";
 
-interface DMSetterDashboardProps {
+interface CloserFunnelDashboardProps {
   userName: string;
   clientId: string;
   clientName?: string;
   isExecutive?: boolean;
   isDemo?: boolean;
   teamMembers: TeamMember[];
-  initialReports: SetterReport[];
+  initialReports: CloserReport[];
 }
 
-interface DMStats {
-  dmsSent: number;
-  responses: number;
-  conversations: number;
-  bookings: number;
-  inboundDms: number;
+interface CloserStats {
+  callsOnCalendar: number;
+  shows: number;
+  noShows: number;
+  reschedules: number;
+  dealsClosed: number;
   cashCollected: number;
   revenue: number;
 }
 
-interface DMRates {
-  responseRate: number;
-  conversationRate: number;
-  bookingRate: number;
-  overallRate: number;
+interface CloserRates {
+  showRate: number;
+  closeRate: number;
+  aov: number;
+  cashPerBookedCall: number;
 }
 
-
-function calculateDMStats(reports: SetterReport[]): { totals: DMStats; rates: DMRates } {
+function calculateCloserStats(reports: CloserReport[]): { totals: CloserStats; rates: CloserRates } {
   const totals = reports.reduce(
     (acc, r) => ({
-      dmsSent: acc.dmsSent + (r.outbound_dms_sent || 0),
-      responses: acc.responses + (r.outbound_dm_responses || 0),
-      conversations: acc.conversations + (r.conversations || 0),
-      bookings: acc.bookings + (r.calls_booked_dms || 0),
-      inboundDms: acc.inboundDms + (r.inbound_dms || 0),
+      callsOnCalendar: acc.callsOnCalendar + (r.calls_on_calendar || 0),
+      shows: acc.shows + (r.shows || 0),
+      noShows: acc.noShows + (r.no_shows || 0),
+      reschedules: acc.reschedules + (r.reschedules || 0),
+      dealsClosed: acc.dealsClosed + (r.deals_closed || 0),
       cashCollected: acc.cashCollected + (r.cash_collected || 0),
       revenue: acc.revenue + (r.revenue_generated || 0),
     }),
-    { dmsSent: 0, responses: 0, conversations: 0, bookings: 0, inboundDms: 0, cashCollected: 0, revenue: 0 }
+    { callsOnCalendar: 0, shows: 0, noShows: 0, reschedules: 0, dealsClosed: 0, cashCollected: 0, revenue: 0 }
   );
 
   const rates = {
-    responseRate: totals.dmsSent > 0 ? totals.responses / totals.dmsSent : 0,
-    conversationRate: totals.responses > 0 ? totals.conversations / totals.responses : 0,
-    bookingRate: totals.conversations > 0 ? totals.bookings / totals.conversations : 0,
-    overallRate: totals.dmsSent > 0 ? totals.bookings / totals.dmsSent : 0,
+    showRate: totals.callsOnCalendar > 0 ? totals.shows / totals.callsOnCalendar : 0,
+    closeRate: totals.shows > 0 ? totals.dealsClosed / totals.shows : 0,
+    aov: totals.dealsClosed > 0 ? totals.cashCollected / totals.dealsClosed : 0,
+    cashPerBookedCall: totals.callsOnCalendar > 0 ? totals.cashCollected / totals.callsOnCalendar : 0,
   };
 
   return { totals, rates };
 }
 
-
-function RateBadge({ rate, good, warning }: { rate: number; good: number; warning: number }) {
-  const status = getDMRateStatus(rate, good, warning);
+function RateBadge({ rate, benchmark, lowerIsBetter = false }: { rate: number; benchmark: number; lowerIsBetter?: boolean }) {
+  const status = getMetricStatus(rate, benchmark, lowerIsBetter);
   const colors = {
     green: "bg-green-500/20 text-green-500",
-    yellow: "bg-amber-500/20 text-amber-500",
     red: "bg-red-400/20 text-red-400",
+    neutral: "bg-white/10 text-white/50",
   };
 
   return (
@@ -77,7 +75,7 @@ function RateBadge({ rate, good, warning }: { rate: number; good: number; warnin
   );
 }
 
-export function DMSetterDashboard({
+export function CloserFunnelDashboard({
   userName,
   clientId,
   clientName,
@@ -85,19 +83,19 @@ export function DMSetterDashboard({
   isDemo,
   teamMembers,
   initialReports,
-}: DMSetterDashboardProps) {
+}: CloserFunnelDashboardProps) {
   const backPath = isDemo ? "/demo" : isExecutive ? `/dashboard/client/${clientId}` : "/dashboard";
-  const [reports, setReports] = useState<SetterReport[]>(initialReports);
+  const [reports, setReports] = useState<CloserReport[]>(initialReports);
   const [dateFrom, setDateFrom] = useState(getThirtyDaysAgo());
   const [dateTo, setDateTo] = useState(new Date().toISOString().split("T")[0]);
-  const [selectedSetter, setSelectedSetter] = useState("all");
+  const [selectedCloser, setSelectedCloser] = useState("all");
   const [isLoading, setIsLoading] = useState(false);
 
-  // Filter setters only
-  const setters = teamMembers.filter((m) => m.role === "Setter");
+  // Filter closers only
+  const closers = teamMembers.filter((m) => m.role === "Closer");
 
   // Calculate stats from current reports
-  const stats = useMemo(() => calculateDMStats(reports), [reports]);
+  const stats = useMemo(() => calculateCloserStats(reports), [reports]);
 
   useEffect(() => {
     async function fetchData() {
@@ -105,15 +103,15 @@ export function DMSetterDashboard({
       const supabase = createClient();
 
       let query = supabase
-        .from("setter_reports")
+        .from("closer_reports")
         .select("*")
         .eq("client_id", clientId)
         .gte("report_date", dateFrom)
         .lte("report_date", dateTo)
         .order("report_date", { ascending: false });
 
-      if (selectedSetter !== "all") {
-        query = query.eq("member_name", selectedSetter);
+      if (selectedCloser !== "all") {
+        query = query.eq("member_name", selectedCloser);
       }
 
       const { data } = await query;
@@ -125,7 +123,7 @@ export function DMSetterDashboard({
     }
 
     fetchData();
-  }, [clientId, dateFrom, dateTo, selectedSetter]);
+  }, [clientId, dateFrom, dateTo, selectedCloser]);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -142,9 +140,9 @@ export function DMSetterDashboard({
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-2xl font-semibold mb-1">DM Setter Funnel</h1>
+            <h1 className="text-2xl font-semibold mb-1">Closer Dashboard</h1>
             <p className="text-white/50">
-              DM outreach performance from messages to booked calls
+              Sales performance from booked calls to closed deals
             </p>
           </div>
         </div>
@@ -170,14 +168,14 @@ export function DMSetterDashboard({
             />
           </div>
           <div>
-            <label className="block text-sm text-white/50 mb-2">Setter</label>
+            <label className="block text-sm text-white/50 mb-2">Closer</label>
             <select
-              value={selectedSetter}
-              onChange={(e) => setSelectedSetter(e.target.value)}
+              value={selectedCloser}
+              onChange={(e) => setSelectedCloser(e.target.value)}
               className="w-full px-4 py-3 bg-white/[0.03] border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/30"
             >
-              <option value="all">All Setters</option>
-              {setters.map((member) => (
+              <option value="all">All Closers</option>
+              {closers.map((member) => (
                 <option key={member.id} value={member.name}>
                   {member.name}
                 </option>
@@ -191,46 +189,43 @@ export function DMSetterDashboard({
         ) : (
           <>
             {/* Funnel Overview */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
               <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
-                <p className="text-white/50 text-sm mb-1">DMs Sent</p>
-                <p className="text-2xl font-semibold">{stats.totals.dmsSent.toLocaleString()}</p>
+                <p className="text-white/50 text-sm mb-1">Calls on Calendar</p>
+                <p className="text-2xl font-semibold">{stats.totals.callsOnCalendar.toLocaleString()}</p>
                 <p className="text-xs text-white/40 mt-1">
-                  → {(stats.rates.responseRate * 100).toFixed(1)}% response
+                  → {(stats.rates.showRate * 100).toFixed(1)}% show rate
                 </p>
               </div>
               <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
-                <p className="text-white/50 text-sm mb-1">Responses</p>
-                <p className="text-2xl font-semibold">{stats.totals.responses.toLocaleString()}</p>
+                <p className="text-white/50 text-sm mb-1">Shows</p>
+                <p className="text-2xl font-semibold">{stats.totals.shows.toLocaleString()}</p>
                 <p className="text-xs text-white/40 mt-1">
-                  → {(stats.rates.conversationRate * 100).toFixed(1)}% to convo
+                  → {(stats.rates.closeRate * 100).toFixed(1)}% close rate
                 </p>
               </div>
               <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
-                <p className="text-white/50 text-sm mb-1">Conversations</p>
-                <p className="text-2xl font-semibold">{stats.totals.conversations.toLocaleString()}</p>
+                <p className="text-white/50 text-sm mb-1">No Shows</p>
+                <p className="text-2xl font-semibold text-red-400">{stats.totals.noShows.toLocaleString()}</p>
                 <p className="text-xs text-white/40 mt-1">
-                  → {(stats.rates.bookingRate * 100).toFixed(1)}% booked
+                  {stats.totals.callsOnCalendar > 0
+                    ? ((stats.totals.noShows / stats.totals.callsOnCalendar) * 100).toFixed(1)
+                    : 0}% no-show rate
                 </p>
               </div>
               <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
-                <p className="text-white/50 text-sm mb-1">Calls Booked</p>
-                <p className="text-2xl font-semibold">{stats.totals.bookings.toLocaleString()}</p>
+                <p className="text-white/50 text-sm mb-1">Deals Closed</p>
+                <p className="text-2xl font-semibold text-green-500">{stats.totals.dealsClosed.toLocaleString()}</p>
                 <p className="text-xs text-white/40 mt-1">
-                  {(stats.rates.overallRate * 100).toFixed(2)}% overall
-                </p>
-              </div>
-              <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-4">
-                <p className="text-blue-400/70 text-sm mb-1">Inbound DMs</p>
-                <p className="text-2xl font-semibold text-blue-400">{stats.totals.inboundDms.toLocaleString()}</p>
-                <p className="text-xs text-blue-400/40 mt-1">
-                  Incoming messages
+                  {stats.totals.callsOnCalendar > 0
+                    ? ((stats.totals.dealsClosed / stats.totals.callsOnCalendar) * 100).toFixed(1)
+                    : 0}% overall
                 </p>
               </div>
             </div>
 
-            {/* Results */}
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            {/* Financial Results */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-4">
                 <p className="text-green-400/70 text-sm mb-1">Cash Collected</p>
                 <p className="text-2xl font-semibold text-green-500">{formatCurrency(stats.totals.cashCollected)}</p>
@@ -239,6 +234,16 @@ export function DMSetterDashboard({
                 <p className="text-white/50 text-sm mb-1">Revenue</p>
                 <p className="text-2xl font-semibold">{formatCurrency(stats.totals.revenue)}</p>
               </div>
+              <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
+                <p className="text-white/50 text-sm mb-1">AOV</p>
+                <p className="text-2xl font-semibold">{formatCurrency(stats.rates.aov)}</p>
+                <p className="text-xs text-white/40 mt-1">Cash per close</p>
+              </div>
+              <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
+                <p className="text-white/50 text-sm mb-1">Cash/Booked Call</p>
+                <p className="text-2xl font-semibold">{formatCurrency(stats.rates.cashPerBookedCall)}</p>
+                <p className="text-xs text-white/40 mt-1">Efficiency metric</p>
+              </div>
             </div>
 
             {/* Conversion Rates */}
@@ -246,52 +251,48 @@ export function DMSetterDashboard({
               <h3 className="text-sm font-medium text-white/70 mb-4 uppercase tracking-wide">Conversion Rates</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 <div>
-                  <p className="text-white/50 text-sm mb-2">Response Rate</p>
+                  <p className="text-white/50 text-sm mb-2">Show Rate</p>
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl font-semibold">{(stats.rates.responseRate * 100).toFixed(1)}%</span>
+                    <span className="text-2xl font-semibold">{(stats.rates.showRate * 100).toFixed(1)}%</span>
                     <RateBadge
-                      rate={stats.rates.responseRate}
-                      good={DM_BENCHMARKS.responseRate}
-                      warning={DM_BENCHMARKS.responseRateWarning}
+                      rate={stats.rates.showRate}
+                      benchmark={BENCHMARKS.showRate}
                     />
                   </div>
-                  <p className="text-xs text-white/30 mt-1">Target: {(DM_BENCHMARKS.responseRate * 100)}%+</p>
+                  <p className="text-xs text-white/30 mt-1">Target: {(BENCHMARKS.showRate * 100)}%+</p>
                 </div>
                 <div>
-                  <p className="text-white/50 text-sm mb-2">Conversation Rate</p>
+                  <p className="text-white/50 text-sm mb-2">Close Rate</p>
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl font-semibold">{(stats.rates.conversationRate * 100).toFixed(1)}%</span>
+                    <span className="text-2xl font-semibold">{(stats.rates.closeRate * 100).toFixed(1)}%</span>
                     <RateBadge
-                      rate={stats.rates.conversationRate}
-                      good={DM_BENCHMARKS.conversationRate}
-                      warning={DM_BENCHMARKS.conversationRateWarning}
+                      rate={stats.rates.closeRate}
+                      benchmark={BENCHMARKS.closeRate}
                     />
                   </div>
-                  <p className="text-xs text-white/30 mt-1">Target: {(DM_BENCHMARKS.conversationRate * 100)}%+</p>
+                  <p className="text-xs text-white/30 mt-1">Target: {(BENCHMARKS.closeRate * 100)}%+</p>
                 </div>
                 <div>
-                  <p className="text-white/50 text-sm mb-2">Booking Rate</p>
+                  <p className="text-white/50 text-sm mb-2">No-Show Rate</p>
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl font-semibold">{(stats.rates.bookingRate * 100).toFixed(1)}%</span>
-                    <RateBadge
-                      rate={stats.rates.bookingRate}
-                      good={DM_BENCHMARKS.bookingRate}
-                      warning={DM_BENCHMARKS.bookingRateWarning}
-                    />
+                    <span className="text-2xl font-semibold">
+                      {stats.totals.callsOnCalendar > 0
+                        ? ((stats.totals.noShows / stats.totals.callsOnCalendar) * 100).toFixed(1)
+                        : 0}%
+                    </span>
                   </div>
-                  <p className="text-xs text-white/30 mt-1">Target: {(DM_BENCHMARKS.bookingRate * 100)}%+</p>
+                  <p className="text-xs text-white/30 mt-1">Lower is better</p>
                 </div>
                 <div>
-                  <p className="text-white/50 text-sm mb-2">Overall Rate</p>
+                  <p className="text-white/50 text-sm mb-2">Overall Close %</p>
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl font-semibold">{(stats.rates.overallRate * 100).toFixed(2)}%</span>
-                    <RateBadge
-                      rate={stats.rates.overallRate}
-                      good={DM_BENCHMARKS.overallRate}
-                      warning={DM_BENCHMARKS.overallRateWarning}
-                    />
+                    <span className="text-2xl font-semibold">
+                      {stats.totals.callsOnCalendar > 0
+                        ? ((stats.totals.dealsClosed / stats.totals.callsOnCalendar) * 100).toFixed(1)
+                        : 0}%
+                    </span>
                   </div>
-                  <p className="text-xs text-white/30 mt-1">Target: {(DM_BENCHMARKS.overallRate * 100)}%+</p>
+                  <p className="text-xs text-white/30 mt-1">Booked → Closed</p>
                 </div>
               </div>
             </div>
@@ -300,7 +301,7 @@ export function DMSetterDashboard({
               <div className="text-center py-12">
                 <p className="text-white/50 mb-2">No data for selected period</p>
                 <p className="text-white/30 text-sm">
-                  Data will appear here once EOD reports with DM metrics are submitted
+                  Data will appear here once EOD closer reports are submitted
                 </p>
               </div>
             )}

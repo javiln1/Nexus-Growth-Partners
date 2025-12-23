@@ -7,7 +7,13 @@ export default function LandingPage() {
     <div className="min-h-screen bg-black">
       <div className="max-w-[900px] mx-auto px-4 sm:px-8">
         {/* Header */}
-        <header className="text-center py-4 sm:py-6">
+        <header className="py-4 sm:py-6 relative">
+          <Link
+            href="/login"
+            className="absolute right-0 top-1/2 -translate-y-1/2 bg-white text-black font-semibold text-sm px-4 py-2 rounded hover:bg-gray-100 hover:-translate-y-0.5 transition-all"
+          >
+            Client Login
+          </Link>
           <Image
             src="/images/logo.png"
             alt="Nexus Growth Partners"

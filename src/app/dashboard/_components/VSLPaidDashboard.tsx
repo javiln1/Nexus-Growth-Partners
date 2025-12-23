@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Navbar } from "./Navbar";
 import { FunnelTrendChart } from "./FunnelTrendChart";
 import { AdPerformanceSection } from "./AdPerformance";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, Lightbulb, TrendingUp, TrendingDown } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type { VSLFunnelReport, VSLFunnelStats, AdPerformance } from "@/types/database";
@@ -14,6 +14,9 @@ import { BENCHMARKS } from "@/lib/benchmarks";
 interface VSLPaidDashboardProps {
   userName: string;
   clientId: string;
+  clientName?: string;
+  isExecutive?: boolean;
+  isDemo?: boolean;
   initialReports: VSLFunnelReport[];
   initialAdPerformance?: AdPerformance[];
 }
@@ -196,12 +199,172 @@ function calcChange(current: number, previous: number): number | null {
   return ((current - previous) / previous) * 100;
 }
 
+// Goal Progress Component
+function GoalProgress({
+  current,
+  goal,
+  daysInPeriod,
+  daysElapsed,
+}: {
+  current: number;
+  goal: number;
+  daysInPeriod: number;
+  daysElapsed: number;
+}) {
+  const progress = goal > 0 ? Math.min((current / goal) * 100, 100) : 0;
+  const daysRemaining = Math.max(daysInPeriod - daysElapsed, 0);
+  const dailyNeeded = daysRemaining > 0 ? (goal - current) / daysRemaining : 0;
+  const expectedAtThisPoint = (goal / daysInPeriod) * daysElapsed;
+  const paceStatus = current >= expectedAtThisPoint ? "ahead" : "behind";
+  const paceDiff = expectedAtThisPoint > 0
+    ? Math.abs(((current - expectedAtThisPoint) / expectedAtThisPoint) * 100)
+    : 0;
+
+  return (
+    <div className="bg-white/[0.02] border border-white/10 rounded-lg p-5">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm text-white/50">Monthly Goal</span>
+        <span className="text-xs text-white/40">
+          {daysElapsed} of {daysInPeriod} days
+        </span>
+      </div>
+
+      {/* Progress Bar */}
+      <div className="mb-3">
+        <div className="flex items-baseline justify-between mb-1">
+          <span className="text-2xl font-semibold text-white">
+            {formatCurrency(current)}
+          </span>
+          <span className="text-sm text-white/50">
+            / {formatCurrency(goal)}
+          </span>
+        </div>
+        <div className="h-3 bg-white/10 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all ${
+              progress >= 100 ? "bg-green-500" : "bg-white/70"
+            }`}
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Pace + Daily Needed */}
+      <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center gap-1.5">
+          {paceStatus === "ahead" ? (
+            <TrendingUp className="w-4 h-4 text-green-500" />
+          ) : (
+            <TrendingDown className="w-4 h-4 text-red-400" />
+          )}
+          <span className={paceStatus === "ahead" ? "text-green-500" : "text-red-400"}>
+            {paceDiff.toFixed(0)}% {paceStatus}
+          </span>
+          <span className="text-white/40">of pace</span>
+        </div>
+        {daysRemaining > 0 && current < goal && (
+          <span className="text-white/40">
+            Need {formatCurrency(dailyNeeded)}/day
+          </span>
+        )}
+        {current >= goal && (
+          <span className="text-green-500">Goal reached!</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Generate smart insight from data
+function generateInsight(
+  stats: VSLFunnelStats,
+  prevStats: VSLFunnelStats,
+  adPerformance: AdPerformance[]
+): { type: "positive" | "warning" | "neutral"; message: string } | null {
+  // Check for best performing campaign
+  if (adPerformance.length > 0) {
+    const aggregated = new Map<string, { spend: number; cash: number; roas: number }>();
+    adPerformance.forEach((row) => {
+      const existing = aggregated.get(row.campaign_name);
+      if (existing) {
+        existing.spend += row.ad_spend;
+        existing.cash += row.cash_collected;
+        existing.roas = existing.spend > 0 ? existing.cash / existing.spend : 0;
+      } else {
+        aggregated.set(row.campaign_name, {
+          spend: row.ad_spend,
+          cash: row.cash_collected,
+          roas: row.ad_spend > 0 ? row.cash_collected / row.ad_spend : 0,
+        });
+      }
+    });
+
+    const campaigns = Array.from(aggregated.entries())
+      .filter(([, data]) => data.spend > 500) // Only campaigns with meaningful spend
+      .sort((a, b) => b[1].roas - a[1].roas);
+
+    if (campaigns.length > 1) {
+      const [bestName, bestData] = campaigns[0];
+      const avgRoas = campaigns.reduce((acc, [, d]) => acc + d.roas, 0) / campaigns.length;
+      if (bestData.roas > avgRoas * 1.5) {
+        return {
+          type: "positive",
+          message: `"${bestName}" is outperforming with ${bestData.roas.toFixed(1)}x ROAS (avg: ${avgRoas.toFixed(1)}x)`,
+        };
+      }
+    }
+  }
+
+  // Check show rate drop
+  if (prevStats.rates.bookingToShow > 0 && stats.rates.bookingToShow > 0) {
+    const showRateDrop = ((prevStats.rates.bookingToShow - stats.rates.bookingToShow) / prevStats.rates.bookingToShow) * 100;
+    if (showRateDrop > 10) {
+      return {
+        type: "warning",
+        message: `Show rate dropped ${showRateDrop.toFixed(0)}% vs last period. Check lead quality or reminder sequence.`,
+      };
+    }
+  }
+
+  // Check close rate improvement
+  if (prevStats.rates.showToClose > 0 && stats.rates.showToClose > 0) {
+    const closeRateImprove = ((stats.rates.showToClose - prevStats.rates.showToClose) / prevStats.rates.showToClose) * 100;
+    if (closeRateImprove > 15) {
+      return {
+        type: "positive",
+        message: `Close rate improved ${closeRateImprove.toFixed(0)}% vs last period. Sales performance is strong.`,
+      };
+    }
+  }
+
+  // Check ROAS health
+  if (stats.roas.cashRoas >= BENCHMARKS.roas * 1.2) {
+    return {
+      type: "positive",
+      message: `ROAS at ${stats.roas.cashRoas.toFixed(1)}x is ${((stats.roas.cashRoas / BENCHMARKS.roas - 1) * 100).toFixed(0)}% above break-even.`,
+    };
+  }
+
+  if (stats.roas.cashRoas < BENCHMARKS.roas * 0.8 && stats.roas.cashRoas > 0) {
+    return {
+      type: "warning",
+      message: `ROAS at ${stats.roas.cashRoas.toFixed(1)}x is below ${BENCHMARKS.roas}x break-even threshold.`,
+    };
+  }
+
+  return null;
+}
+
 export function VSLPaidDashboard({
   userName,
   clientId,
+  clientName,
+  isExecutive,
+  isDemo,
   initialReports,
   initialAdPerformance = [],
 }: VSLPaidDashboardProps) {
+  const backPath = isDemo ? "/demo" : isExecutive ? `/dashboard/client/${clientId}` : "/dashboard";
   const [reports, setReports] = useState<VSLFunnelReport[]>(initialReports);
   const [prevReports, setPrevReports] = useState<VSLFunnelReport[]>([]);
   const [adPerformance, setAdPerformance] = useState<AdPerformance[]>(initialAdPerformance);
@@ -211,6 +374,22 @@ export function VSLPaidDashboard({
 
   const stats = calculateStats(reports);
   const prevStats = calculateStats(prevReports);
+
+  // Calculate days for goal tracking
+  const fromDate = new Date(dateFrom);
+  const toDate = new Date(dateTo);
+  const daysInPeriod = Math.ceil((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  const today = new Date();
+  const daysElapsed = Math.min(
+    Math.ceil((today.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24)),
+    daysInPeriod
+  );
+
+  // Monthly cash goal (can be made configurable later)
+  const monthlyGoal = 100000;
+
+  // Generate insight
+  const insight = generateInsight(stats, prevStats, adPerformance);
 
   useEffect(() => {
     async function fetchData() {
@@ -278,7 +457,7 @@ export function VSLPaidDashboard({
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Back Link */}
         <Link
-          href="/dashboard"
+          href={backPath}
           className="inline-flex items-center gap-2 text-white/50 hover:text-white mb-6 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -312,6 +491,55 @@ export function VSLPaidDashboard({
             </div>
           </div>
         </div>
+
+        {/* Goal Progress + Insight */}
+        {reports.length > 0 && !isLoading && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+            <GoalProgress
+              current={stats.period.cashCollected}
+              goal={monthlyGoal}
+              daysInPeriod={daysInPeriod}
+              daysElapsed={daysElapsed}
+            />
+            {insight && (
+              <div
+                className={`bg-white/[0.02] border rounded-lg p-5 flex items-start gap-4 ${
+                  insight.type === "positive"
+                    ? "border-green-500/30"
+                    : insight.type === "warning"
+                    ? "border-red-400/30"
+                    : "border-white/10"
+                }`}
+              >
+                <div
+                  className={`p-2 rounded-lg ${
+                    insight.type === "positive"
+                      ? "bg-green-500/10"
+                      : insight.type === "warning"
+                      ? "bg-red-400/10"
+                      : "bg-white/5"
+                  }`}
+                >
+                  <Lightbulb
+                    className={`w-5 h-5 ${
+                      insight.type === "positive"
+                        ? "text-green-500"
+                        : insight.type === "warning"
+                        ? "text-red-400"
+                        : "text-white/50"
+                    }`}
+                  />
+                </div>
+                <div>
+                  <p className="text-xs text-white/40 uppercase tracking-wide mb-1">
+                    Insight
+                  </p>
+                  <p className="text-sm text-white/80">{insight.message}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {isLoading ? (
           <div className="text-center py-12 text-white/50">Loading...</div>

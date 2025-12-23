@@ -14,6 +14,9 @@ import { BENCHMARKS } from "@/lib/benchmarks";
 interface VSLOrganicDashboardProps {
   userName: string;
   clientId: string;
+  clientName?: string;
+  isExecutive?: boolean;
+  isDemo?: boolean;
   initialReports: VSLFunnelReport[];
   initialContentData?: OrganicContent[];
 }
@@ -157,9 +160,13 @@ function calcChange(current: number, previous: number): number | null {
 export function VSLOrganicDashboard({
   userName,
   clientId,
+  clientName,
+  isExecutive,
+  isDemo,
   initialReports,
   initialContentData = [],
 }: VSLOrganicDashboardProps) {
+  const backPath = isDemo ? "/demo" : isExecutive ? `/dashboard/client/${clientId}` : "/dashboard";
   const [reports, setReports] = useState<VSLFunnelReport[]>(initialReports);
   const [prevReports, setPrevReports] = useState<VSLFunnelReport[]>([]);
   const [contentData, setContentData] = useState<OrganicContent[]>(initialContentData);
@@ -236,7 +243,7 @@ export function VSLOrganicDashboard({
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Back Link */}
         <Link
-          href="/dashboard"
+          href={backPath}
           className="inline-flex items-center gap-2 text-white/50 hover:text-white mb-6 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />

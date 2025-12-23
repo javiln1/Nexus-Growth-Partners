@@ -1,9 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { DMSetterDashboard } from "../_components/DMSetterDashboard";
+import { CloserFunnelDashboard } from "../_components/CloserFunnelDashboard";
 import { getThirtyDaysAgo } from "@/lib/utils";
 
-export default async function DMSetterPage() {
+export default async function CloserPage() {
   const supabase = await createClient();
 
   const {
@@ -35,16 +35,16 @@ export default async function DMSetterPage() {
     .eq("active", true)
     .order("name");
 
-  // Get setter reports (includes DM metrics from EOD reports)
+  // Get closer reports
   const { data: reports } = await supabase
-    .from("setter_reports")
+    .from("closer_reports")
     .select("*")
     .eq("client_id", profile.client_id)
     .gte("report_date", thirtyDaysAgo)
     .order("report_date", { ascending: false });
 
   return (
-    <DMSetterDashboard
+    <CloserFunnelDashboard
       userName={profile.full_name || user.email || "User"}
       clientId={profile.client_id}
       teamMembers={teamMembers || []}

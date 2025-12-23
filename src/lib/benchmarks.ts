@@ -21,6 +21,30 @@ export const BENCHMARKS = {
   minAdSpend: 7500,        // Minimum monthly spend for model to work
 };
 
+// DM Funnel Benchmarks - Industry standards for high-ticket DM outreach
+export const DM_BENCHMARKS = {
+  // Conversion rates (as decimals)
+  responseRate: 0.15,       // 15% DM to response - good
+  responseRateWarning: 0.10, // 10% - warning threshold
+  conversationRate: 0.50,   // 50% response to conversation - good
+  conversationRateWarning: 0.30, // 30% - warning threshold
+  bookingRate: 0.20,        // 20% conversation to booking - good
+  bookingRateWarning: 0.10, // 10% - warning threshold
+  overallRate: 0.015,       // 1.5% DM to booking (end-to-end) - good
+  overallRateWarning: 0.008, // 0.8% - warning threshold
+};
+
+// DM Benchmark helper - returns "green" | "yellow" | "red"
+export function getDMRateStatus(
+  rate: number, // as decimal (e.g., 0.15 for 15%)
+  goodThreshold: number,
+  warningThreshold: number
+): "green" | "yellow" | "red" {
+  if (rate >= goodThreshold) return "green";
+  if (rate >= warningThreshold) return "yellow";
+  return "red";
+}
+
 // Helper functions to check if a metric is healthy
 export function isRoasHealthy(roas: number): boolean {
   return roas >= BENCHMARKS.roas;
