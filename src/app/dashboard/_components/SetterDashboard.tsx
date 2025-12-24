@@ -46,13 +46,13 @@ export function SetterDashboard({ stats, weeklyTarget }: SetterDashboardProps) {
         {/* Yesterday's KPIs */}
         <div className="bg-white/[0.03] border border-white/10 rounded-lg p-5 animate-fade-in">
           <h2 className="text-lg font-semibold mb-4">Yesterday&apos;s KPIs</h2>
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
             <StatCard label="Dials" value={stats.yesterday.dials} />
             <StatCard label="DMs Sent" value={stats.yesterday.dms} />
-            <StatCard label="Conversations" value={stats.yesterday.convos} />
-            <StatCard label="Calls Booked" value={stats.yesterday.booked} />
-            <StatCard label="Live Transfers" value={stats.yesterday.transfers} />
-            <StatCard label="Cash Collected" value={formatCurrency(stats.yesterday.cash)} color="green" />
+            <StatCard label="Convos" value={stats.yesterday.convos} />
+            <StatCard label="Booked" value={stats.yesterday.booked} />
+            <StatCard label="Transfers" value={stats.yesterday.transfers} />
+            <StatCard label="Cash" value={formatCurrency(stats.yesterday.cash)} color="green" />
           </div>
         </div>
 
@@ -75,15 +75,15 @@ export function SetterDashboard({ stats, weeklyTarget }: SetterDashboardProps) {
         {/* Period Totals */}
         <div className="bg-white/[0.03] border border-white/10 rounded-lg p-5 animate-fade-in">
           <h2 className="text-lg font-semibold mb-4">Period Totals</h2>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 sm:grid-cols-3 gap-2">
             <StatCard label="Dials" value={stats.period.dials} />
             <StatCard label="DMs Sent" value={stats.period.dms} />
             <StatCard label="Responses" value={stats.period.responses} />
-            <StatCard label="Conversations" value={stats.period.convos} />
-            <StatCard label="Calls Booked" value={stats.period.booked} />
-            <StatCard label="Live Transfers" value={stats.period.transfers} />
+            <StatCard label="Convos" value={stats.period.convos} />
+            <StatCard label="Booked" value={stats.period.booked} />
+            <StatCard label="Transfers" value={stats.period.transfers} />
             <StatCard label="Follow-ups" value={stats.period.followups} />
-            <StatCard label="Cash Collected" value={formatCurrency(stats.period.cash)} color="green" />
+            <StatCard label="Cash" value={formatCurrency(stats.period.cash)} color="green" />
             <StatCard label="Revenue" value={formatCurrency(stats.period.revenue)} color="green" />
           </div>
         </div>
