@@ -36,7 +36,7 @@ export function CloserPersonalDashboard({
   totalClosers,
 }: CloserPersonalDashboardProps) {
   const [goalAmount, setGoalAmount] = useState(100000);
-  const [targetAOV, setTargetAOV] = useState(1500);
+  const [targetAOV, setTargetAOV] = useState(3000);
   const [targetShowRate, setTargetShowRate] = useState(65);
   const [targetCloseRate, setTargetCloseRate] = useState(30);
 
