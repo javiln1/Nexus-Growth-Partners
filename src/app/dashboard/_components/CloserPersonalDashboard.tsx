@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Navbar } from "./Navbar";
-import { Trophy, Target, Phone, DollarSign, FileText } from "lucide-react";
+import { Trophy, Target, Phone, DollarSign, FileText, Calculator } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { BENCHMARKS, getMetricStatus } from "@/lib/benchmarks";
 import type { CloserReport } from "@/types/database";
@@ -35,6 +35,8 @@ export function CloserPersonalDashboard({
   rank,
   totalClosers,
 }: CloserPersonalDashboardProps) {
+  const [goalAmount, setGoalAmount] = useState(100000);
+
   // Calculate totals
   const stats = useMemo(() => {
     const totals = reports.reduce(
@@ -61,6 +63,26 @@ export function CloserPersonalDashboard({
 
     return { totals, rates };
   }, [reports]);
+
+  // Goal calculator - back-calculate what's needed to hit goal
+  const goalCalc = useMemo(() => {
+    const aov = stats.rates.aov > 0 ? stats.rates.aov : 5000; // Default $5k if no data
+    const closeRate = stats.rates.closeRate > 0 ? stats.rates.closeRate : 0.30; // Default 30%
+    const showRate = stats.rates.showRate > 0 ? stats.rates.showRate : 0.70; // Default 70%
+
+    const dealsNeeded = Math.ceil(goalAmount / aov);
+    const showsNeeded = Math.ceil(dealsNeeded / closeRate);
+    const bookingsNeeded = Math.ceil(showsNeeded / showRate);
+
+    return {
+      aov,
+      closeRate,
+      showRate,
+      dealsNeeded,
+      showsNeeded,
+      bookingsNeeded,
+    };
+  }, [goalAmount, stats.rates]);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -205,15 +227,62 @@ export function CloserPersonalDashboard({
           </div>
         </div>
 
-        {/* Financial Summary */}
-        <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-4">
-          <div className="flex items-center gap-3">
-            <DollarSign className="w-5 h-5 text-green-400" />
-            <div>
-              <p className="text-green-400/70 text-sm">Total Revenue Generated</p>
-              <p className="text-xl font-semibold text-green-400">{formatCurrency(stats.totals.revenue)}</p>
+        {/* Goal Calculator */}
+        <div className="bg-white/[0.03] border border-white/10 rounded-lg p-6 mb-8">
+          <div className="flex items-center gap-2 mb-6">
+            <Calculator className="w-5 h-5 text-green-500" />
+            <h3 className="text-lg font-medium">Goal Calculator</h3>
+          </div>
+
+          <div className="mb-6">
+            <label className="block text-white/50 text-sm mb-2">Cash Collected Goal</label>
+            <div className="flex items-center gap-3">
+              <span className="text-white/50">$</span>
+              <input
+                type="number"
+                value={goalAmount}
+                onChange={(e) => setGoalAmount(Number(e.target.value) || 0)}
+                className="bg-white/5 border border-white/15 rounded px-4 py-2 text-xl font-semibold w-40 focus:border-green-500/50 focus:outline-none"
+              />
+              <div className="flex gap-2">
+                {[50000, 100000, 150000, 200000].map((preset) => (
+                  <button
+                    key={preset}
+                    onClick={() => setGoalAmount(preset)}
+                    className={`px-3 py-1 rounded text-sm ${goalAmount === preset ? 'bg-green-500 text-black' : 'bg-white/10 text-white/70 hover:bg-white/20'}`}
+                  >
+                    {formatCurrency(preset)}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4 text-center">
+              <p className="text-green-400/70 text-sm mb-1">Goal</p>
+              <p className="text-2xl font-bold text-green-500">{formatCurrency(goalAmount)}</p>
+            </div>
+            <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-center">
+              <p className="text-white/50 text-sm mb-1">Deals Needed</p>
+              <p className="text-2xl font-bold">{goalCalc.dealsNeeded}</p>
+              <p className="text-xs text-white/30 mt-1">@ {formatCurrency(goalCalc.aov)} AOV</p>
+            </div>
+            <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-center">
+              <p className="text-white/50 text-sm mb-1">Shows Needed</p>
+              <p className="text-2xl font-bold">{goalCalc.showsNeeded}</p>
+              <p className="text-xs text-white/30 mt-1">@ {(goalCalc.closeRate * 100).toFixed(0)}% close rate</p>
+            </div>
+            <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-center">
+              <p className="text-white/50 text-sm mb-1">Bookings Needed</p>
+              <p className="text-2xl font-bold">{goalCalc.bookingsNeeded}</p>
+              <p className="text-xs text-white/30 mt-1">@ {(goalCalc.showRate * 100).toFixed(0)}% show rate</p>
+            </div>
+          </div>
+
+          <p className="text-white/30 text-xs mt-4 text-center">
+            Based on your current conversion rates. Improve your rates to need fewer bookings!
+          </p>
         </div>
 
         {reports.length === 0 && (

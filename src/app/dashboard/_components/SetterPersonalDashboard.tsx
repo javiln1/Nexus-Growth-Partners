@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { Navbar } from "./Navbar";
-import { Trophy, TrendingUp, MessageCircle, Phone, Target, FileText } from "lucide-react";
+import { Trophy, TrendingUp, MessageCircle, Target, FileText } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { DM_BENCHMARKS, getDMRateStatus } from "@/lib/benchmarks";
 import type { SetterReport } from "@/types/database";
@@ -215,17 +215,6 @@ export function SetterPersonalDashboard({
                 />
               </div>
               <p className="text-xs text-white/30 mt-1">Target: {(DM_BENCHMARKS.overallRate * 100)}%+</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Inbound Activity */}
-        <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
-          <div className="flex items-center gap-3">
-            <Phone className="w-5 h-5 text-white/50" />
-            <div>
-              <p className="text-white/50 text-sm">Inbound DMs Received</p>
-              <p className="text-xl font-semibold">{stats.totals.inboundDms.toLocaleString()}</p>
             </div>
           </div>
         </div>
