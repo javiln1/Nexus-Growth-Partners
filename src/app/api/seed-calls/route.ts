@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
-const CLOSERS = ["Alex", "Jordan", "Mike"];
+const DEFAULT_CLOSERS = ["Alex", "Jordan", "Mike"];
 const LEAD_NAMES = [
   "Sarah Johnson", "Michael Chen", "Emma Wilson", "James Brown",
   "Olivia Davis", "William Martinez", "Sophia Garcia", "Benjamin Lee",
@@ -58,6 +58,18 @@ export async function POST() {
 
   const clientId = profile.client_id;
 
+  // Get actual closers from team_members, fallback to defaults
+  const { data: teamClosers } = await supabase
+    .from("team_members")
+    .select("name")
+    .eq("client_id", clientId)
+    .eq("role", "Closer")
+    .eq("active", true);
+
+  const closerNames = teamClosers && teamClosers.length > 0
+    ? teamClosers.map(c => c.name)
+    : DEFAULT_CLOSERS;
+
   // Generate calls for today and the next 7 days
   const calls = [];
   const today = new Date();
@@ -81,7 +93,7 @@ export async function POST() {
         call_time: getRandomTime(),
         lead_name: LEAD_NAMES[Math.floor(Math.random() * LEAD_NAMES.length)],
         lead_email: `lead${Math.floor(Math.random() * 1000)}@example.com`,
-        closer_name: CLOSERS[Math.floor(Math.random() * CLOSERS.length)],
+        closer_name: closerNames[Math.floor(Math.random() * closerNames.length)],
         investment_min: investment.min,
         investment_max: investment.max,
         investment_notes: investment.notes,
