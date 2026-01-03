@@ -36,6 +36,10 @@ export function SetterPersonalDashboard({
   totalSetters,
 }: SetterPersonalDashboardProps) {
   const [goalAmount, setGoalAmount] = useState(50000);
+  const [targetCashPerBooking, setTargetCashPerBooking] = useState(500);
+  const [targetResponseRate, setTargetResponseRate] = useState(5);
+  const [targetConvoRate, setTargetConvoRate] = useState(50);
+  const [targetBookingRate, setTargetBookingRate] = useState(30);
 
   // Calculate totals
   const stats = useMemo(() => {
@@ -66,13 +70,12 @@ export function SetterPersonalDashboard({
 
   const totalBookings = stats.totals.bookings + stats.totals.callsBookedDials;
 
-  // Goal calculator - back-calculate what's needed to hit goal
+  // Goal calculator - back-calculate what's needed to hit goal using TARGET rates
   const goalCalc = useMemo(() => {
-    // Cash per booking (how much cash each booking generates)
-    const cashPerBooking = totalBookings > 0 ? stats.totals.cashCollected / totalBookings : 2000; // Default $2k if no data
-    const responseRate = stats.rates.responseRate > 0 ? stats.rates.responseRate : 0.05; // Default 5%
-    const conversationRate = stats.rates.conversationRate > 0 ? stats.rates.conversationRate : 0.50; // Default 50%
-    const bookingRate = stats.rates.bookingRate > 0 ? stats.rates.bookingRate : 0.30; // Default 30%
+    const cashPerBooking = targetCashPerBooking;
+    const responseRate = targetResponseRate / 100;
+    const conversationRate = targetConvoRate / 100;
+    const bookingRate = targetBookingRate / 100;
 
     const bookingsNeeded = Math.ceil(goalAmount / cashPerBooking);
     const conversationsNeeded = Math.ceil(bookingsNeeded / bookingRate);
@@ -89,7 +92,7 @@ export function SetterPersonalDashboard({
       responsesNeeded,
       dmsNeeded,
     };
-  }, [goalAmount, stats.rates, stats.totals.cashCollected, totalBookings]);
+  }, [goalAmount, targetCashPerBooking, targetResponseRate, targetConvoRate, targetBookingRate]);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -263,31 +266,85 @@ export function SetterPersonalDashboard({
             {/* Goal Input & Progress Section */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
               {/* Goal Setting */}
-              <div className="space-y-3">
-                <label className="block text-white/50 text-sm font-medium">Set Your Goal</label>
-                <div className="flex items-center gap-2">
-                  <span className="text-white/30 text-lg">$</span>
-                  <input
-                    type="number"
-                    value={goalAmount}
-                    onChange={(e) => setGoalAmount(Number(e.target.value) || 0)}
-                    className="bg-white/5 border border-white/20 rounded-xl px-4 py-3 text-2xl font-bold w-full focus:border-green-500/50 focus:outline-none focus:ring-2 focus:ring-green-500/20 transition-all"
-                  />
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-white/50 text-sm font-medium mb-2">Cash Goal</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-white/30 text-lg">$</span>
+                    <input
+                      type="number"
+                      value={goalAmount}
+                      onChange={(e) => setGoalAmount(Number(e.target.value) || 0)}
+                      className="bg-white/5 border border-white/20 rounded-xl px-4 py-3 text-2xl font-bold w-full focus:border-green-500/50 focus:outline-none focus:ring-2 focus:ring-green-500/20 transition-all"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {[25000, 50000, 75000, 100000].map((preset) => (
+                      <button
+                        key={preset}
+                        onClick={() => setGoalAmount(preset)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                          goalAmount === preset
+                            ? 'bg-green-500 text-black shadow-lg shadow-green-500/25'
+                            : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+                        }`}
+                      >
+                        {formatCurrency(preset)}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {[25000, 50000, 75000, 100000].map((preset) => (
-                    <button
-                      key={preset}
-                      onClick={() => setGoalAmount(preset)}
-                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                        goalAmount === preset
-                          ? 'bg-green-500 text-black shadow-lg shadow-green-500/25'
-                          : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
-                      }`}
-                    >
-                      {formatCurrency(preset)}
-                    </button>
-                  ))}
+
+                {/* Target Rates */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-white/40 text-xs mb-1">$/Booking</label>
+                    <div className="flex items-center">
+                      <span className="text-white/30 text-sm mr-1">$</span>
+                      <input
+                        type="number"
+                        value={targetCashPerBooking}
+                        onChange={(e) => setTargetCashPerBooking(Number(e.target.value) || 500)}
+                        className="bg-white/5 border border-white/20 rounded-lg px-2 py-1.5 text-sm font-medium w-full focus:border-green-500/50 focus:outline-none transition-all"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-white/40 text-xs mb-1">Response %</label>
+                    <div className="flex items-center">
+                      <input
+                        type="number"
+                        value={targetResponseRate}
+                        onChange={(e) => setTargetResponseRate(Math.min(100, Math.max(1, Number(e.target.value) || 5)))}
+                        className="bg-white/5 border border-white/20 rounded-lg px-2 py-1.5 text-sm font-medium w-full focus:border-green-500/50 focus:outline-none transition-all"
+                      />
+                      <span className="text-white/30 text-sm ml-1">%</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-white/40 text-xs mb-1">Convo %</label>
+                    <div className="flex items-center">
+                      <input
+                        type="number"
+                        value={targetConvoRate}
+                        onChange={(e) => setTargetConvoRate(Math.min(100, Math.max(1, Number(e.target.value) || 50)))}
+                        className="bg-white/5 border border-white/20 rounded-lg px-2 py-1.5 text-sm font-medium w-full focus:border-green-500/50 focus:outline-none transition-all"
+                      />
+                      <span className="text-white/30 text-sm ml-1">%</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-white/40 text-xs mb-1">Booking %</label>
+                    <div className="flex items-center">
+                      <input
+                        type="number"
+                        value={targetBookingRate}
+                        onChange={(e) => setTargetBookingRate(Math.min(100, Math.max(1, Number(e.target.value) || 30)))}
+                        className="bg-white/5 border border-white/20 rounded-lg px-2 py-1.5 text-sm font-medium w-full focus:border-green-500/50 focus:outline-none transition-all"
+                      />
+                      <span className="text-white/30 text-sm ml-1">%</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 

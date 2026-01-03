@@ -36,6 +36,9 @@ export function CloserPersonalDashboard({
   totalClosers,
 }: CloserPersonalDashboardProps) {
   const [goalAmount, setGoalAmount] = useState(100000);
+  const [targetAOV, setTargetAOV] = useState(1500);
+  const [targetShowRate, setTargetShowRate] = useState(65);
+  const [targetCloseRate, setTargetCloseRate] = useState(30);
 
   // Calculate totals
   const stats = useMemo(() => {
@@ -64,11 +67,11 @@ export function CloserPersonalDashboard({
     return { totals, rates };
   }, [reports]);
 
-  // Goal calculator - back-calculate what's needed to hit goal
+  // Goal calculator - back-calculate what's needed to hit goal using TARGET rates
   const goalCalc = useMemo(() => {
-    const aov = stats.rates.aov > 0 ? stats.rates.aov : 5000; // Default $5k if no data
-    const closeRate = stats.rates.closeRate > 0 ? stats.rates.closeRate : 0.30; // Default 30%
-    const showRate = stats.rates.showRate > 0 ? stats.rates.showRate : 0.70; // Default 70%
+    const aov = targetAOV;
+    const closeRate = targetCloseRate / 100;
+    const showRate = targetShowRate / 100;
 
     const dealsNeeded = Math.ceil(goalAmount / aov);
     const showsNeeded = Math.ceil(dealsNeeded / closeRate);
@@ -82,7 +85,7 @@ export function CloserPersonalDashboard({
       showsNeeded,
       bookingsNeeded,
     };
-  }, [goalAmount, stats.rates]);
+  }, [goalAmount, targetAOV, targetShowRate, targetCloseRate]);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -244,31 +247,73 @@ export function CloserPersonalDashboard({
             {/* Goal Input & Progress Section */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
               {/* Goal Setting */}
-              <div className="space-y-3">
-                <label className="block text-white/50 text-sm font-medium">Set Your Goal</label>
-                <div className="flex items-center gap-2">
-                  <span className="text-white/30 text-lg">$</span>
-                  <input
-                    type="number"
-                    value={goalAmount}
-                    onChange={(e) => setGoalAmount(Number(e.target.value) || 0)}
-                    className="bg-white/5 border border-white/20 rounded-xl px-4 py-3 text-2xl font-bold w-full focus:border-green-500/50 focus:outline-none focus:ring-2 focus:ring-green-500/20 transition-all"
-                  />
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-white/50 text-sm font-medium mb-2">Cash Goal</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-white/30 text-lg">$</span>
+                    <input
+                      type="number"
+                      value={goalAmount}
+                      onChange={(e) => setGoalAmount(Number(e.target.value) || 0)}
+                      className="bg-white/5 border border-white/20 rounded-xl px-4 py-3 text-2xl font-bold w-full focus:border-green-500/50 focus:outline-none focus:ring-2 focus:ring-green-500/20 transition-all"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {[50000, 100000, 150000, 200000].map((preset) => (
+                      <button
+                        key={preset}
+                        onClick={() => setGoalAmount(preset)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                          goalAmount === preset
+                            ? 'bg-green-500 text-black shadow-lg shadow-green-500/25'
+                            : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+                        }`}
+                      >
+                        {formatCurrency(preset)}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {[50000, 100000, 150000, 200000].map((preset) => (
-                    <button
-                      key={preset}
-                      onClick={() => setGoalAmount(preset)}
-                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                        goalAmount === preset
-                          ? 'bg-green-500 text-black shadow-lg shadow-green-500/25'
-                          : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
-                      }`}
-                    >
-                      {formatCurrency(preset)}
-                    </button>
-                  ))}
+
+                {/* Target Rates */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-white/40 text-xs mb-1">AOV</label>
+                    <div className="flex items-center">
+                      <span className="text-white/30 text-sm mr-1">$</span>
+                      <input
+                        type="number"
+                        value={targetAOV}
+                        onChange={(e) => setTargetAOV(Number(e.target.value) || 1500)}
+                        className="bg-white/5 border border-white/20 rounded-lg px-2 py-1.5 text-sm font-medium w-full focus:border-green-500/50 focus:outline-none transition-all"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-white/40 text-xs mb-1">Show %</label>
+                    <div className="flex items-center">
+                      <input
+                        type="number"
+                        value={targetShowRate}
+                        onChange={(e) => setTargetShowRate(Math.min(100, Math.max(1, Number(e.target.value) || 65)))}
+                        className="bg-white/5 border border-white/20 rounded-lg px-2 py-1.5 text-sm font-medium w-full focus:border-green-500/50 focus:outline-none transition-all"
+                      />
+                      <span className="text-white/30 text-sm ml-1">%</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-white/40 text-xs mb-1">Close %</label>
+                    <div className="flex items-center">
+                      <input
+                        type="number"
+                        value={targetCloseRate}
+                        onChange={(e) => setTargetCloseRate(Math.min(100, Math.max(1, Number(e.target.value) || 30)))}
+                        className="bg-white/5 border border-white/20 rounded-lg px-2 py-1.5 text-sm font-medium w-full focus:border-green-500/50 focus:outline-none transition-all"
+                      />
+                      <span className="text-white/30 text-sm ml-1">%</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
