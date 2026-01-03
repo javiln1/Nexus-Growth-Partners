@@ -36,7 +36,7 @@ export function SetterPersonalDashboard({
   totalSetters,
 }: SetterPersonalDashboardProps) {
   const [goalAmount, setGoalAmount] = useState(50000);
-  const [targetCashPerBooking, setTargetCashPerBooking] = useState(500);
+  const [targetCashPerBooking, setTargetCashPerBooking] = useState(585); // $3000 AOV × 65% show × 30% close
   const [targetResponseRate, setTargetResponseRate] = useState(5);
   const [targetConvoRate, setTargetConvoRate] = useState(50);
   const [targetBookingRate, setTargetBookingRate] = useState(30);
