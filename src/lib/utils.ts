@@ -49,3 +49,20 @@ export function getThirtyDaysAgo(): string {
 export function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(" ");
 }
+
+export function getSixtyDaysAgo(): string {
+  const date = new Date();
+  date.setDate(date.getDate() - 60);
+  return date.toISOString().split("T")[0];
+}
+
+export function getThirtyOneDaysAgo(): string {
+  const date = new Date();
+  date.setDate(date.getDate() - 31);
+  return date.toISOString().split("T")[0];
+}
+
+export function calculatePercentChange(current: number, previous: number): number {
+  if (previous === 0) return current > 0 ? 100 : 0;
+  return ((current - previous) / previous) * 100;
+}

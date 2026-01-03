@@ -1,47 +1,90 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useTransition, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Navbar } from "./Navbar";
-import { Trophy, TrendingUp, MessageCircle, Target, FileText, Calculator } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { Trophy, ChevronDown, ChevronUp, ArrowRight, TrendingUp, TrendingDown } from "lucide-react";
+import { formatCurrency, calculatePercentChange } from "@/lib/utils";
 import { DM_BENCHMARKS, getDMRateStatus } from "@/lib/benchmarks";
-import type { SetterReport } from "@/types/database";
+import { saveUserGoal } from "@/lib/actions/goals";
+import type { SetterReport, UserGoal } from "@/types/database";
+
+interface BookingOutcome {
+  id: string;
+  status: string;
+  closed: boolean | null;
+  cash_amount: number;
+  call_date: string;
+}
 
 interface SetterPersonalDashboardProps {
+  userId: string;
   userName: string;
   setterName: string;
   reports: SetterReport[];
+  previousReports: SetterReport[];
   rank: number;
   totalSetters: number;
+  savedGoal: UserGoal | null;
+  bookingOutcomes: BookingOutcome[];
 }
 
-function RateBadge({ rate, good, warning }: { rate: number; good: number; warning: number }) {
-  const status = getDMRateStatus(rate, good, warning);
-  // Simple: green = good, red = bad
-  const isGood = status === "green";
+function ChangeIndicator({ current, previous, isCurrency = false }: { current: number; previous: number; isCurrency?: boolean }) {
+  const change = calculatePercentChange(current, previous);
+  const isPositive = change >= 0;
+
+  if (previous === 0 && current === 0) return null;
 
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${isGood ? "bg-green-500/20 text-green-500" : "bg-red-400/20 text-red-400"}`}>
-      {(rate * 100).toFixed(1)}%
+    <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+      {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+      {isPositive ? '+' : ''}{change.toFixed(0)}%
     </span>
   );
 }
 
 export function SetterPersonalDashboard({
+  userId,
   userName,
   setterName,
   reports,
+  previousReports,
   rank,
   totalSetters,
+  savedGoal,
+  bookingOutcomes,
 }: SetterPersonalDashboardProps) {
-  const [goalAmount, setGoalAmount] = useState(50000);
-  const [targetCashPerBooking, setTargetCashPerBooking] = useState(585); // $3000 AOV × 65% show × 30% close
-  const [targetResponseRate, setTargetResponseRate] = useState(5);
-  const [targetConvoRate, setTargetConvoRate] = useState(50);
-  const [targetBookingRate, setTargetBookingRate] = useState(30);
+  const [goalAmount, setGoalAmount] = useState(savedGoal?.goal_amount ?? 50000);
+  const [showGoalSettings, setShowGoalSettings] = useState(false);
+  const [targetCashPerBooking, setTargetCashPerBooking] = useState(savedGoal?.target_cash_per_booking ?? 585);
+  const [targetResponseRate, setTargetResponseRate] = useState(savedGoal?.target_response_rate ?? 5);
+  const [targetConvoRate, setTargetConvoRate] = useState(savedGoal?.target_convo_rate ?? 50);
+  const [targetBookingRate, setTargetBookingRate] = useState(savedGoal?.target_booking_rate ?? 30);
+  const [isPending, startTransition] = useTransition();
+  const [lastSaved, setLastSaved] = useState<number | null>(null);
 
-  // Calculate totals
+  // Auto-save goal when values change (debounced)
+  const saveGoal = useCallback(() => {
+    startTransition(async () => {
+      await saveUserGoal(userId, {
+        goalAmount,
+        targetCashPerBooking,
+        targetResponseRate,
+        targetConvoRate,
+        targetBookingRate,
+      });
+      setLastSaved(Date.now());
+    });
+  }, [userId, goalAmount, targetCashPerBooking, targetResponseRate, targetConvoRate, targetBookingRate]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      saveGoal();
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [goalAmount, targetCashPerBooking, targetResponseRate, targetConvoRate, targetBookingRate, saveGoal]);
+
+  // Calculate current period totals
   const stats = useMemo(() => {
     const totals = reports.reduce(
       (acc, r) => ({
@@ -49,13 +92,11 @@ export function SetterPersonalDashboard({
         responses: acc.responses + (r.outbound_dm_responses || 0),
         conversations: acc.conversations + (r.conversations || 0),
         bookings: acc.bookings + (r.calls_booked_dms || 0),
-        inboundDms: acc.inboundDms + (r.inbound_dms || 0),
         cashCollected: acc.cashCollected + (r.cash_collected || 0),
-        revenue: acc.revenue + (r.revenue_generated || 0),
         dials: acc.dials + (r.dials || 0),
         callsBookedDials: acc.callsBookedDials + (r.calls_booked_dials || 0),
       }),
-      { dmsSent: 0, responses: 0, conversations: 0, bookings: 0, inboundDms: 0, cashCollected: 0, revenue: 0, dials: 0, callsBookedDials: 0 }
+      { dmsSent: 0, responses: 0, conversations: 0, bookings: 0, cashCollected: 0, dials: 0, callsBookedDials: 0 }
     );
 
     const rates = {
@@ -68,445 +109,359 @@ export function SetterPersonalDashboard({
     return { totals, rates };
   }, [reports]);
 
-  const totalBookings = stats.totals.bookings + stats.totals.callsBookedDials;
+  // Calculate previous period totals for comparison
+  const prevStats = useMemo(() => {
+    const totals = previousReports.reduce(
+      (acc, r) => ({
+        dmsSent: acc.dmsSent + (r.outbound_dms_sent || 0),
+        responses: acc.responses + (r.outbound_dm_responses || 0),
+        conversations: acc.conversations + (r.conversations || 0),
+        bookings: acc.bookings + (r.calls_booked_dms || 0),
+        cashCollected: acc.cashCollected + (r.cash_collected || 0),
+        dials: acc.dials + (r.dials || 0),
+        callsBookedDials: acc.callsBookedDials + (r.calls_booked_dials || 0),
+      }),
+      { dmsSent: 0, responses: 0, conversations: 0, bookings: 0, cashCollected: 0, dials: 0, callsBookedDials: 0 }
+    );
+    return totals;
+  }, [previousReports]);
 
-  // Goal calculator - back-calculate what's needed to hit goal using TARGET rates
+  const totalBookings = stats.totals.bookings + stats.totals.callsBookedDials;
+  const prevTotalBookings = prevStats.bookings + prevStats.callsBookedDials;
+  const progressPercent = goalAmount > 0 ? Math.min((stats.totals.cashCollected / goalAmount) * 100, 100) : 0;
+  const remaining = Math.max(goalAmount - stats.totals.cashCollected, 0);
+
+  // Calculate booking outcomes
+  const outcomes = useMemo(() => {
+    const total = bookingOutcomes.length;
+    const shows = bookingOutcomes.filter(b => b.status === "completed").length;
+    const noShows = bookingOutcomes.filter(b => b.status === "no_show").length;
+    const closes = bookingOutcomes.filter(b => b.closed === true).length;
+    const pending = bookingOutcomes.filter(b => b.status === "scheduled").length;
+    const cashFromClosing = bookingOutcomes.reduce((sum, b) => sum + (b.cash_amount || 0), 0);
+
+    const showRate = total > 0 ? (shows / total) * 100 : 0;
+    const closeRate = shows > 0 ? (closes / shows) * 100 : 0;
+
+    return { total, shows, noShows, closes, pending, cashFromClosing, showRate, closeRate };
+  }, [bookingOutcomes]);
+
+  // Goal calculator
   const goalCalc = useMemo(() => {
-    const cashPerBooking = targetCashPerBooking;
     const responseRate = targetResponseRate / 100;
     const conversationRate = targetConvoRate / 100;
     const bookingRate = targetBookingRate / 100;
 
-    const bookingsNeeded = Math.ceil(goalAmount / cashPerBooking);
+    const bookingsNeeded = Math.ceil(remaining / targetCashPerBooking);
     const conversationsNeeded = Math.ceil(bookingsNeeded / bookingRate);
     const responsesNeeded = Math.ceil(conversationsNeeded / conversationRate);
     const dmsNeeded = Math.ceil(responsesNeeded / responseRate);
 
-    return {
-      cashPerBooking,
-      responseRate,
-      conversationRate,
-      bookingRate,
-      bookingsNeeded,
-      conversationsNeeded,
-      responsesNeeded,
-      dmsNeeded,
-    };
-  }, [goalAmount, targetCashPerBooking, targetResponseRate, targetConvoRate, targetBookingRate]);
+    return { bookingsNeeded, conversationsNeeded, responsesNeeded, dmsNeeded };
+  }, [remaining, targetCashPerBooking, targetResponseRate, targetConvoRate, targetBookingRate]);
+
+  // Rate status helper
+  const getRateColor = (rate: number, good: number, warning: number) => {
+    const status = getDMRateStatus(rate, good, warning);
+    return status === "green" ? "text-green-400" : "text-red-400";
+  };
 
   return (
     <div className="min-h-screen bg-black text-white">
       <Navbar userName={userName} />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header with Rank */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-              <Target className="w-5 h-5 text-green-500" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-semibold">Welcome, {setterName}</h1>
-              <p className="text-white/50">Your personal performance dashboard</p>
-            </div>
-          </div>
-
-          {/* Rank Badge & Submit Button */}
-          <div className="flex flex-wrap items-center gap-3">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Compact Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-xl font-medium text-white/90">{setterName}</h1>
             {rank > 0 && (
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-500/10 border border-green-500/20 rounded-lg">
-                <Trophy className="w-5 h-5 text-green-500" />
-                <span className="text-green-500 font-medium">
-                  #{rank} of {totalSetters} setters
+              <div className="flex items-center gap-1.5 mt-1">
+                <Trophy className="w-3.5 h-3.5 text-green-500" />
+                <span className="text-sm text-white/40">
+                  #{rank} of {totalSetters}
                 </span>
-                <span className="text-white/40 text-sm">(by cash collected)</span>
               </div>
             )}
-            <Link
-              href="/dashboard/submit-eod"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-green-500 text-black font-medium rounded-lg hover:bg-green-400 transition-colors"
-            >
-              <FileText className="w-4 h-4" />
-              Submit EOD Report
-            </Link>
+          </div>
+          <div className="text-right">
+            <span className="text-xs text-white/30 uppercase tracking-wider">Last 30 Days</span>
+            {isPending && <span className="block text-xs text-green-400/50 mt-0.5">Saving...</span>}
           </div>
         </div>
 
-        {/* Key Metrics */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-4">
-            <p className="text-green-400/70 text-sm mb-1">Cash Collected</p>
-            <p className="text-2xl font-semibold text-green-500">{formatCurrency(stats.totals.cashCollected)}</p>
-            <p className="text-xs text-green-400/40 mt-1">Last 30 days</p>
+        {/* HERO: Progress Ring + Cash */}
+        <div className="flex flex-col items-center mb-8">
+          {/* Large Progress Ring */}
+          <div className="relative w-56 h-56 mb-4">
+            <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="44" fill="none" stroke="currentColor" strokeWidth="4" className="text-white/[0.06]" />
+              <circle
+                cx="50" cy="50" r="44" fill="none" stroke="url(#heroGradient)" strokeWidth="4" strokeLinecap="round"
+                strokeDasharray={`${(progressPercent / 100) * 276.46} 276.46`}
+                className="transition-all duration-1000 ease-out"
+              />
+              <defs>
+                <linearGradient id="heroGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#22c55e" />
+                  <stop offset="100%" stopColor="#4ade80" />
+                </linearGradient>
+              </defs>
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-4xl font-bold text-green-400 tabular-nums">
+                {formatCurrency(stats.totals.cashCollected)}
+              </span>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-sm text-white/40">of {formatCurrency(goalAmount)}</span>
+                <ChangeIndicator current={stats.totals.cashCollected} previous={prevStats.cashCollected} isCurrency />
+              </div>
+              <span className="text-xs text-white/25 mt-0.5">
+                {remaining > 0 ? `${formatCurrency(remaining)} to go` : "Goal reached!"}
+              </span>
+            </div>
           </div>
-          <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
-            <p className="text-white/50 text-sm mb-1">Calls Booked</p>
-            <p className="text-2xl font-semibold">{totalBookings}</p>
-            <p className="text-xs text-white/40 mt-1">DMs: {stats.totals.bookings} | Dials: {stats.totals.callsBookedDials}</p>
+
+          {/* Goal Presets */}
+          <div className="flex items-center gap-2 mb-6">
+            {[25000, 50000, 75000, 100000].map((preset) => (
+              <button
+                key={preset}
+                onClick={() => setGoalAmount(preset)}
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${
+                  goalAmount === preset
+                    ? "bg-green-500 text-black"
+                    : "bg-white/[0.04] text-white/50 hover:bg-white/[0.08] hover:text-white/70"
+                }`}
+              >
+                {formatCurrency(preset)}
+              </button>
+            ))}
           </div>
-          <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
-            <p className="text-white/50 text-sm mb-1">DMs Sent</p>
-            <p className="text-2xl font-semibold">{stats.totals.dmsSent.toLocaleString()}</p>
-            <p className="text-xs text-white/40 mt-1">Outbound messages</p>
-          </div>
-          <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
-            <p className="text-white/50 text-sm mb-1">Dials Made</p>
-            <p className="text-2xl font-semibold">{stats.totals.dials.toLocaleString()}</p>
-            <p className="text-xs text-white/40 mt-1">Phone calls</p>
-          </div>
+
+          {/* Primary Action */}
+          <Link
+            href="/dashboard/submit-eod"
+            className="inline-flex items-center gap-2 px-8 py-3 bg-green-500 text-black font-semibold rounded-lg hover:bg-green-400 transition-colors text-base"
+          >
+            Submit EOD Report
+            <ArrowRight className="w-4 h-4" />
+          </Link>
         </div>
 
-        {/* DM Funnel */}
+        {/* Funnel Flow with Period Comparison */}
         <div className="mb-8">
-          <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
-            <MessageCircle className="w-5 h-5 text-green-500" />
-            DM Funnel Performance
-          </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
-              <p className="text-white/50 text-sm mb-1">DMs Sent</p>
-              <p className="text-xl font-semibold">{stats.totals.dmsSent.toLocaleString()}</p>
-              <p className="text-xs text-white/40 mt-1">
-                → {(stats.rates.responseRate * 100).toFixed(1)}% response
-              </p>
+          <div className="grid grid-cols-4 gap-1">
+            {/* DMs Sent */}
+            <div className="bg-white/[0.03] rounded-l-lg p-4 relative">
+              <div className="text-center">
+                <p className="text-2xl font-semibold tabular-nums">{stats.totals.dmsSent.toLocaleString()}</p>
+                <p className="text-xs text-white/40 mt-1">DMs Sent</p>
+                <div className="flex items-center justify-center gap-1 mt-2">
+                  <span className={`text-xs font-medium ${getRateColor(stats.rates.responseRate, DM_BENCHMARKS.responseRate, DM_BENCHMARKS.responseRateWarning)}`}>
+                    {(stats.rates.responseRate * 100).toFixed(1)}%
+                  </span>
+                  <ChangeIndicator current={stats.totals.dmsSent} previous={prevStats.dmsSent} />
+                </div>
+              </div>
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 text-white/10">
+                <ChevronDown className="w-4 h-4 rotate-[-90deg]" />
+              </div>
             </div>
-            <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
-              <p className="text-white/50 text-sm mb-1">Responses</p>
-              <p className="text-xl font-semibold">{stats.totals.responses.toLocaleString()}</p>
-              <p className="text-xs text-white/40 mt-1">
-                → {(stats.rates.conversationRate * 100).toFixed(1)}% to convo
-              </p>
+
+            {/* Responses */}
+            <div className="bg-white/[0.03] p-4 relative">
+              <div className="text-center">
+                <p className="text-2xl font-semibold tabular-nums">{stats.totals.responses.toLocaleString()}</p>
+                <p className="text-xs text-white/40 mt-1">Responses</p>
+                <div className="flex items-center justify-center gap-1 mt-2">
+                  <span className={`text-xs font-medium ${getRateColor(stats.rates.conversationRate, DM_BENCHMARKS.conversationRate, DM_BENCHMARKS.conversationRateWarning)}`}>
+                    {(stats.rates.conversationRate * 100).toFixed(0)}%
+                  </span>
+                  <ChangeIndicator current={stats.totals.responses} previous={prevStats.responses} />
+                </div>
+              </div>
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 text-white/10">
+                <ChevronDown className="w-4 h-4 rotate-[-90deg]" />
+              </div>
             </div>
-            <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
-              <p className="text-white/50 text-sm mb-1">Conversations</p>
-              <p className="text-xl font-semibold">{stats.totals.conversations.toLocaleString()}</p>
-              <p className="text-xs text-white/40 mt-1">
-                → {(stats.rates.bookingRate * 100).toFixed(1)}% booked
-              </p>
+
+            {/* Conversations */}
+            <div className="bg-white/[0.03] p-4 relative">
+              <div className="text-center">
+                <p className="text-2xl font-semibold tabular-nums">{stats.totals.conversations.toLocaleString()}</p>
+                <p className="text-xs text-white/40 mt-1">Convos</p>
+                <div className="flex items-center justify-center gap-1 mt-2">
+                  <span className={`text-xs font-medium ${getRateColor(stats.rates.bookingRate, DM_BENCHMARKS.bookingRate, DM_BENCHMARKS.bookingRateWarning)}`}>
+                    {(stats.rates.bookingRate * 100).toFixed(0)}%
+                  </span>
+                  <ChangeIndicator current={stats.totals.conversations} previous={prevStats.conversations} />
+                </div>
+              </div>
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 text-white/10">
+                <ChevronDown className="w-4 h-4 rotate-[-90deg]" />
+              </div>
             </div>
-            <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
-              <p className="text-white/50 text-sm mb-1">Calls Booked</p>
-              <p className="text-xl font-semibold text-green-500">{stats.totals.bookings}</p>
-              <p className="text-xs text-white/40 mt-1">
-                {(stats.rates.overallRate * 100).toFixed(2)}% overall
-              </p>
+
+            {/* Bookings */}
+            <div className="bg-green-500/10 border border-green-500/20 rounded-r-lg p-4">
+              <div className="text-center">
+                <p className="text-2xl font-semibold text-green-400 tabular-nums">{totalBookings}</p>
+                <p className="text-xs text-green-400/60 mt-1">Booked</p>
+                <div className="flex items-center justify-center gap-1 mt-2">
+                  <ChangeIndicator current={totalBookings} previous={prevTotalBookings} />
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Conversion Rates with Benchmarks */}
-        <div className="bg-white/[0.03] border border-white/10 rounded-lg p-6 mb-8">
-          <h3 className="text-sm font-medium text-white/70 mb-4 uppercase tracking-wide">Your Conversion Rates</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            <div>
-              <p className="text-white/50 text-sm mb-2">Response Rate</p>
-              <div className="flex items-center gap-3">
-                <span className="text-2xl font-semibold">{(stats.rates.responseRate * 100).toFixed(1)}%</span>
-                <RateBadge
-                  rate={stats.rates.responseRate}
-                  good={DM_BENCHMARKS.responseRate}
-                  warning={DM_BENCHMARKS.responseRateWarning}
-                />
+        {/* My Booking Outcomes */}
+        {outcomes.total > 0 && (
+          <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-5 mb-6">
+            <p className="text-xs text-white/40 uppercase tracking-wider mb-4">What happened to your bookings</p>
+            <div className="grid grid-cols-5 gap-3 text-center mb-4">
+              <div>
+                <p className="text-lg font-semibold tabular-nums">{outcomes.total}</p>
+                <p className="text-xs text-white/30">Booked</p>
               </div>
-              <p className="text-xs text-white/30 mt-1">Target: {(DM_BENCHMARKS.responseRate * 100)}%+</p>
+              <div>
+                <p className="text-lg font-semibold text-green-400 tabular-nums">{outcomes.shows}</p>
+                <p className="text-xs text-white/30">Showed</p>
+              </div>
+              <div>
+                <p className="text-lg font-semibold text-red-400 tabular-nums">{outcomes.noShows}</p>
+                <p className="text-xs text-white/30">No-Shows</p>
+              </div>
+              <div>
+                <p className="text-lg font-semibold text-green-400 tabular-nums">{outcomes.closes}</p>
+                <p className="text-xs text-white/30">Closed</p>
+              </div>
+              <div>
+                <p className="text-lg font-semibold text-white/40 tabular-nums">{outcomes.pending}</p>
+                <p className="text-xs text-white/30">Pending</p>
+              </div>
             </div>
-            <div>
-              <p className="text-white/50 text-sm mb-2">Conversation Rate</p>
-              <div className="flex items-center gap-3">
-                <span className="text-2xl font-semibold">{(stats.rates.conversationRate * 100).toFixed(1)}%</span>
-                <RateBadge
-                  rate={stats.rates.conversationRate}
-                  good={DM_BENCHMARKS.conversationRate}
-                  warning={DM_BENCHMARKS.conversationRateWarning}
-                />
+            <div className="flex items-center justify-center gap-6 pt-3 border-t border-white/[0.06]">
+              <div className="text-center">
+                <span className={`text-sm font-medium ${outcomes.showRate >= 65 ? 'text-green-400' : 'text-red-400'}`}>
+                  {outcomes.showRate.toFixed(0)}%
+                </span>
+                <span className="text-xs text-white/30 ml-1">show rate</span>
               </div>
-              <p className="text-xs text-white/30 mt-1">Target: {(DM_BENCHMARKS.conversationRate * 100)}%+</p>
-            </div>
-            <div>
-              <p className="text-white/50 text-sm mb-2">Booking Rate</p>
-              <div className="flex items-center gap-3">
-                <span className="text-2xl font-semibold">{(stats.rates.bookingRate * 100).toFixed(1)}%</span>
-                <RateBadge
-                  rate={stats.rates.bookingRate}
-                  good={DM_BENCHMARKS.bookingRate}
-                  warning={DM_BENCHMARKS.bookingRateWarning}
-                />
+              <div className="text-center">
+                <span className={`text-sm font-medium ${outcomes.closeRate >= 30 ? 'text-green-400' : 'text-red-400'}`}>
+                  {outcomes.closeRate.toFixed(0)}%
+                </span>
+                <span className="text-xs text-white/30 ml-1">close rate</span>
               </div>
-              <p className="text-xs text-white/30 mt-1">Target: {(DM_BENCHMARKS.bookingRate * 100)}%+</p>
-            </div>
-            <div>
-              <p className="text-white/50 text-sm mb-2">Overall Rate</p>
-              <div className="flex items-center gap-3">
-                <span className="text-2xl font-semibold">{(stats.rates.overallRate * 100).toFixed(2)}%</span>
-                <RateBadge
-                  rate={stats.rates.overallRate}
-                  good={DM_BENCHMARKS.overallRate}
-                  warning={DM_BENCHMARKS.overallRateWarning}
-                />
-              </div>
-              <p className="text-xs text-white/30 mt-1">Target: {(DM_BENCHMARKS.overallRate * 100)}%+</p>
+              {outcomes.cashFromClosing > 0 && (
+                <div className="text-center">
+                  <span className="text-sm font-medium text-green-400">
+                    {formatCurrency(outcomes.cashFromClosing)}
+                  </span>
+                  <span className="text-xs text-white/30 ml-1">from closes</span>
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Goal Calculator */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-white/[0.05] to-white/[0.02] border border-white/10 rounded-2xl p-6 mb-8">
-          {/* Background glow effect */}
-          <div className="absolute -top-24 -right-24 w-48 h-48 bg-green-500/10 rounded-full blur-3xl" />
-          <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-green-500/5 rounded-full blur-3xl" />
-
-          <div className="relative">
-            <div className="flex items-center gap-2 mb-6">
-              <div className="p-2 bg-green-500/20 rounded-lg">
-                <Calculator className="w-5 h-5 text-green-500" />
+        {/* What You Need (Remaining) */}
+        {remaining > 0 && (
+          <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-5 mb-6">
+            <p className="text-xs text-white/40 uppercase tracking-wider mb-4">To hit your goal</p>
+            <div className="grid grid-cols-4 gap-4 text-center">
+              <div>
+                <p className="text-xl font-semibold tabular-nums">{goalCalc.dmsNeeded.toLocaleString()}</p>
+                <p className="text-xs text-white/30">DMs</p>
               </div>
-              <h3 className="text-lg font-semibold">Goal Calculator</h3>
+              <div>
+                <p className="text-xl font-semibold tabular-nums">{goalCalc.responsesNeeded.toLocaleString()}</p>
+                <p className="text-xs text-white/30">Responses</p>
+              </div>
+              <div>
+                <p className="text-xl font-semibold tabular-nums">{goalCalc.conversationsNeeded}</p>
+                <p className="text-xs text-white/30">Convos</p>
+              </div>
+              <div>
+                <p className="text-xl font-semibold text-green-400 tabular-nums">{goalCalc.bookingsNeeded}</p>
+                <p className="text-xs text-green-400/50">Bookings</p>
+              </div>
             </div>
+          </div>
+        )}
 
-            {/* Goal Input & Progress Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-              {/* Goal Setting */}
-              <div className="space-y-4">
+        {/* Collapsible Goal Settings */}
+        <div className="border border-white/[0.06] rounded-lg overflow-hidden">
+          <button
+            onClick={() => setShowGoalSettings(!showGoalSettings)}
+            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-white/[0.02] transition-colors"
+          >
+            <span className="text-xs text-white/40 uppercase tracking-wider">Adjust Assumptions</span>
+            {showGoalSettings ? <ChevronUp className="w-4 h-4 text-white/30" /> : <ChevronDown className="w-4 h-4 text-white/30" />}
+          </button>
+
+          {showGoalSettings && (
+            <div className="px-4 pb-4 border-t border-white/[0.06]">
+              <div className="grid grid-cols-4 gap-3 pt-4">
                 <div>
-                  <label className="block text-white/50 text-sm font-medium mb-2">Cash Goal</label>
-                  <div className="flex items-center gap-2">
-                    <span className="text-white/30 text-lg">$</span>
+                  <label className="block text-xs text-white/30 mb-1.5">$/Booking</label>
+                  <div className="flex items-center bg-white/[0.04] rounded px-2 py-1.5">
+                    <span className="text-white/30 text-sm">$</span>
                     <input
                       type="number"
-                      value={goalAmount}
-                      onChange={(e) => setGoalAmount(Number(e.target.value) || 0)}
-                      className="bg-white/5 border border-white/20 rounded-xl px-4 py-3 text-2xl font-bold w-full focus:border-green-500/50 focus:outline-none focus:ring-2 focus:ring-green-500/20 transition-all"
+                      value={targetCashPerBooking}
+                      onChange={(e) => setTargetCashPerBooking(Number(e.target.value) || 500)}
+                      className="bg-transparent w-full text-sm font-medium focus:outline-none ml-1"
                     />
                   </div>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {[25000, 50000, 75000, 100000].map((preset) => (
-                      <button
-                        key={preset}
-                        onClick={() => setGoalAmount(preset)}
-                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                          goalAmount === preset
-                            ? 'bg-green-500 text-black shadow-lg shadow-green-500/25'
-                            : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
-                        }`}
-                      >
-                        {formatCurrency(preset)}
-                      </button>
-                    ))}
-                  </div>
                 </div>
-
-                {/* Target Rates */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-white/40 text-xs mb-1">$/Booking</label>
-                    <div className="flex items-center">
-                      <span className="text-white/30 text-sm mr-1">$</span>
-                      <input
-                        type="number"
-                        value={targetCashPerBooking}
-                        onChange={(e) => setTargetCashPerBooking(Number(e.target.value) || 500)}
-                        className="bg-white/5 border border-white/20 rounded-lg px-2 py-1.5 text-sm font-medium w-full focus:border-green-500/50 focus:outline-none transition-all"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-white/40 text-xs mb-1">Response %</label>
-                    <div className="flex items-center">
-                      <input
-                        type="number"
-                        value={targetResponseRate}
-                        onChange={(e) => setTargetResponseRate(Math.min(100, Math.max(1, Number(e.target.value) || 5)))}
-                        className="bg-white/5 border border-white/20 rounded-lg px-2 py-1.5 text-sm font-medium w-full focus:border-green-500/50 focus:outline-none transition-all"
-                      />
-                      <span className="text-white/30 text-sm ml-1">%</span>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-white/40 text-xs mb-1">Convo %</label>
-                    <div className="flex items-center">
-                      <input
-                        type="number"
-                        value={targetConvoRate}
-                        onChange={(e) => setTargetConvoRate(Math.min(100, Math.max(1, Number(e.target.value) || 50)))}
-                        className="bg-white/5 border border-white/20 rounded-lg px-2 py-1.5 text-sm font-medium w-full focus:border-green-500/50 focus:outline-none transition-all"
-                      />
-                      <span className="text-white/30 text-sm ml-1">%</span>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-white/40 text-xs mb-1">Booking %</label>
-                    <div className="flex items-center">
-                      <input
-                        type="number"
-                        value={targetBookingRate}
-                        onChange={(e) => setTargetBookingRate(Math.min(100, Math.max(1, Number(e.target.value) || 30)))}
-                        className="bg-white/5 border border-white/20 rounded-lg px-2 py-1.5 text-sm font-medium w-full focus:border-green-500/50 focus:outline-none transition-all"
-                      />
-                      <span className="text-white/30 text-sm ml-1">%</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Progress Circle */}
-              <div className="flex flex-col items-center justify-center">
-                <div className="relative w-40 h-40">
-                  {/* Background circle */}
-                  <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r="42"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="8"
-                      className="text-white/10"
+                <div>
+                  <label className="block text-xs text-white/30 mb-1.5">Response %</label>
+                  <div className="flex items-center bg-white/[0.04] rounded px-2 py-1.5">
+                    <input
+                      type="number"
+                      value={targetResponseRate}
+                      onChange={(e) => setTargetResponseRate(Math.min(100, Math.max(1, Number(e.target.value) || 5)))}
+                      className="bg-transparent w-full text-sm font-medium focus:outline-none"
                     />
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r="42"
-                      fill="none"
-                      stroke="url(#progressGradient)"
-                      strokeWidth="8"
-                      strokeLinecap="round"
-                      strokeDasharray={`${Math.min((stats.totals.cashCollected / goalAmount) * 264, 264)} 264`}
-                      className="transition-all duration-1000 ease-out"
+                    <span className="text-white/30 text-sm">%</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-white/30 mb-1.5">Convo %</label>
+                  <div className="flex items-center bg-white/[0.04] rounded px-2 py-1.5">
+                    <input
+                      type="number"
+                      value={targetConvoRate}
+                      onChange={(e) => setTargetConvoRate(Math.min(100, Math.max(1, Number(e.target.value) || 50)))}
+                      className="bg-transparent w-full text-sm font-medium focus:outline-none"
                     />
-                    <defs>
-                      <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" stopColor="#22c55e" />
-                        <stop offset="100%" stopColor="#4ade80" />
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                  {/* Center content */}
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-3xl font-bold text-green-500">
-                      {Math.min(Math.round((stats.totals.cashCollected / goalAmount) * 100), 100)}%
-                    </span>
-                    <span className="text-xs text-white/40">of goal</span>
+                    <span className="text-white/30 text-sm">%</span>
                   </div>
                 </div>
-              </div>
-
-              {/* Current vs Goal */}
-              <div className="space-y-4">
-                <div className="bg-white/5 rounded-xl p-4">
-                  <p className="text-white/40 text-xs uppercase tracking-wider mb-1">Current</p>
-                  <p className="text-2xl font-bold text-white">{formatCurrency(stats.totals.cashCollected)}</p>
-                </div>
-                <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4">
-                  <p className="text-green-400/60 text-xs uppercase tracking-wider mb-1">Goal</p>
-                  <p className="text-2xl font-bold text-green-500">{formatCurrency(goalAmount)}</p>
-                </div>
-                <div className="bg-white/5 rounded-xl p-4">
-                  <p className="text-white/40 text-xs uppercase tracking-wider mb-1">Remaining</p>
-                  <p className="text-2xl font-bold text-white/70">
-                    {formatCurrency(Math.max(goalAmount - stats.totals.cashCollected, 0))}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Visual Funnel */}
-            <div className="mb-6">
-              <p className="text-white/50 text-sm font-medium mb-4">What You Need to Hit Your Goal</p>
-
-              {/* Progress Bar */}
-              <div className="h-2 bg-white/10 rounded-full mb-6 overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full transition-all duration-1000 ease-out"
-                  style={{ width: `${Math.min((stats.totals.cashCollected / goalAmount) * 100, 100)}%` }}
-                />
-              </div>
-
-              {/* Funnel Steps */}
-              <div className="relative">
-                <div className="grid grid-cols-4 gap-2 md:gap-4">
-                  {/* DMs */}
-                  <div className="relative group">
-                    <div className="bg-gradient-to-b from-white/10 to-white/5 rounded-xl p-4 border border-white/10 hover:border-white/20 transition-all h-full">
-                      <div className="text-center">
-                        <div className="w-10 h-10 mx-auto mb-2 rounded-full bg-white/10 flex items-center justify-center">
-                          <span className="text-lg">💬</span>
-                        </div>
-                        <p className="text-2xl md:text-3xl font-bold text-white">{goalCalc.dmsNeeded.toLocaleString()}</p>
-                        <p className="text-xs text-white/40 mt-1">DMs Needed</p>
-                        <div className="mt-2 px-2 py-1 bg-white/5 rounded-md">
-                          <p className="text-xs text-white/50">{(goalCalc.responseRate * 100).toFixed(1)}% response</p>
-                        </div>
-                      </div>
-                    </div>
-                    {/* Arrow */}
-                    <div className="hidden md:block absolute -right-3 top-1/2 -translate-y-1/2 text-white/20 z-10">→</div>
-                  </div>
-
-                  {/* Responses */}
-                  <div className="relative group">
-                    <div className="bg-gradient-to-b from-white/10 to-white/5 rounded-xl p-4 border border-white/10 hover:border-white/20 transition-all h-full">
-                      <div className="text-center">
-                        <div className="w-10 h-10 mx-auto mb-2 rounded-full bg-white/10 flex items-center justify-center">
-                          <span className="text-lg">📩</span>
-                        </div>
-                        <p className="text-2xl md:text-3xl font-bold text-white">{goalCalc.responsesNeeded.toLocaleString()}</p>
-                        <p className="text-xs text-white/40 mt-1">Responses</p>
-                        <div className="mt-2 px-2 py-1 bg-white/5 rounded-md">
-                          <p className="text-xs text-white/50">{(goalCalc.conversationRate * 100).toFixed(0)}% to convo</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="hidden md:block absolute -right-3 top-1/2 -translate-y-1/2 text-white/20 z-10">→</div>
-                  </div>
-
-                  {/* Conversations */}
-                  <div className="relative group">
-                    <div className="bg-gradient-to-b from-white/10 to-white/5 rounded-xl p-4 border border-white/10 hover:border-white/20 transition-all h-full">
-                      <div className="text-center">
-                        <div className="w-10 h-10 mx-auto mb-2 rounded-full bg-white/10 flex items-center justify-center">
-                          <span className="text-lg">🗣️</span>
-                        </div>
-                        <p className="text-2xl md:text-3xl font-bold text-white">{goalCalc.conversationsNeeded.toLocaleString()}</p>
-                        <p className="text-xs text-white/40 mt-1">Conversations</p>
-                        <div className="mt-2 px-2 py-1 bg-white/5 rounded-md">
-                          <p className="text-xs text-white/50">{(goalCalc.bookingRate * 100).toFixed(0)}% book</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="hidden md:block absolute -right-3 top-1/2 -translate-y-1/2 text-white/20 z-10">→</div>
-                  </div>
-
-                  {/* Bookings */}
-                  <div className="relative group">
-                    <div className="bg-gradient-to-b from-green-500/20 to-green-500/10 rounded-xl p-4 border border-green-500/30 h-full">
-                      <div className="text-center">
-                        <div className="w-10 h-10 mx-auto mb-2 rounded-full bg-green-500/20 flex items-center justify-center">
-                          <span className="text-lg">📅</span>
-                        </div>
-                        <p className="text-2xl md:text-3xl font-bold text-green-500">{goalCalc.bookingsNeeded}</p>
-                        <p className="text-xs text-green-400/60 mt-1">Bookings</p>
-                        <div className="mt-2 px-2 py-1 bg-green-500/10 rounded-md">
-                          <p className="text-xs text-green-400/70">{formatCurrency(goalCalc.cashPerBooking)} each</p>
-                        </div>
-                      </div>
-                    </div>
+                <div>
+                  <label className="block text-xs text-white/30 mb-1.5">Booking %</label>
+                  <div className="flex items-center bg-white/[0.04] rounded px-2 py-1.5">
+                    <input
+                      type="number"
+                      value={targetBookingRate}
+                      onChange={(e) => setTargetBookingRate(Math.min(100, Math.max(1, Number(e.target.value) || 30)))}
+                      className="bg-transparent w-full text-sm font-medium focus:outline-none"
+                    />
+                    <span className="text-white/30 text-sm">%</span>
                   </div>
                 </div>
               </div>
             </div>
-
-            <p className="text-white/30 text-xs text-center">
-              💡 Improve your conversion rates to need fewer DMs to hit your goal
-            </p>
-          </div>
+          )}
         </div>
 
         {reports.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-white/50 mb-2">No data for the last 30 days</p>
-            <p className="text-white/30 text-sm">
-              Your metrics will appear here once you submit EOD reports
-            </p>
+          <div className="text-center py-16 mt-8">
+            <p className="text-white/40 mb-1">No data yet</p>
+            <p className="text-white/25 text-sm">Submit your first EOD report to see your stats</p>
           </div>
         )}
       </main>

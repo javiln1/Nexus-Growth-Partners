@@ -2,7 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { getAuthenticatedUser } from "@/lib/auth/roles";
 import { CloserPersonalDashboard } from "../_components/CloserPersonalDashboard";
-import { getThirtyDaysAgo } from "@/lib/utils";
+import { getThirtyDaysAgo, getSixtyDaysAgo, getThirtyOneDaysAgo, getToday } from "@/lib/utils";
+import { getUserGoal } from "@/lib/actions/goals";
 
 export default async function CloserPersonalPage() {
   const user = await getAuthenticatedUser();
@@ -14,16 +15,19 @@ export default async function CloserPersonalPage() {
 
   const supabase = await createClient();
   const thirtyDaysAgo = getThirtyDaysAgo();
+  const sixtyDaysAgo = getSixtyDaysAgo();
+  const thirtyOneDaysAgo = getThirtyOneDaysAgo();
 
   // Get team member info for this closer
   let closerName = user.fullName;
   let teamMemberId = user.teamMemberId;
+  let clientId: string | null = null;
 
   if (!teamMemberId) {
     // Try to find team member by email
     const { data: teamMember } = await supabase
       .from("team_members")
-      .select("id, name")
+      .select("id, name, client_id")
       .eq("email", user.email)
       .eq("role", "Closer")
       .single();
@@ -31,26 +35,46 @@ export default async function CloserPersonalPage() {
     if (teamMember) {
       teamMemberId = teamMember.id;
       closerName = teamMember.name;
+      clientId = teamMember.client_id;
     }
   } else {
-    // Get team member name
+    // Get team member name and client_id
     const { data: teamMember } = await supabase
       .from("team_members")
-      .select("name")
+      .select("name, client_id")
       .eq("id", teamMemberId)
       .single();
 
     if (teamMember) {
       closerName = teamMember.name;
+      clientId = teamMember.client_id;
     }
   }
 
-  // Get closer's reports
+  // Fetch today's calls for this closer
+  const todayDate = getToday();
+  const { data: todayCalls } = await supabase
+    .from("scheduled_calls")
+    .select("*")
+    .eq("closer_name", closerName)
+    .eq("call_date", todayDate)
+    .order("call_time", { ascending: true });
+
+  // Get closer's reports for current period (last 30 days)
   const { data: reports } = await supabase
     .from("closer_reports")
     .select("*")
     .eq("team_member_id", teamMemberId)
     .gte("report_date", thirtyDaysAgo)
+    .order("report_date", { ascending: false });
+
+  // Get closer's reports for previous period (31-60 days ago)
+  const { data: previousReports } = await supabase
+    .from("closer_reports")
+    .select("*")
+    .eq("team_member_id", teamMemberId)
+    .gte("report_date", sixtyDaysAgo)
+    .lt("report_date", thirtyOneDaysAgo)
     .order("report_date", { ascending: false });
 
   // Get all closers' cash collected for ranking
@@ -75,13 +99,21 @@ export default async function CloserPersonalPage() {
     ? sortedClosers.findIndex(([id]) => id === teamMemberId) + 1
     : 0;
 
+  // Get user's saved goal
+  const savedGoal = await getUserGoal(user.id, "monthly");
+
   return (
     <CloserPersonalDashboard
+      userId={user.id}
       userName={user.fullName}
       closerName={closerName}
+      clientId={clientId || ""}
       reports={reports || []}
+      previousReports={previousReports || []}
       rank={rank}
       totalClosers={sortedClosers.length}
+      savedGoal={savedGoal}
+      todayCalls={todayCalls || []}
     />
   );
 }

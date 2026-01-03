@@ -314,14 +314,76 @@ export interface ScheduledCall {
   lead_email: string | null;
   lead_phone: string | null;
   closer_name: string;
+  setter_id: string | null;
+  setter_name: string | null;
   investment_min: number | null;
   investment_max: number | null;
   investment_notes: string | null;
   confirmed: boolean | null; // null = pending, true = confirmed, false = declined
   status: "scheduled" | "completed" | "no_show" | "rescheduled" | "cancelled";
   outcome: string | null;
+  closed: boolean | null; // null = pending/unknown, true = closed, false = not closed
+  cash_amount: number;
   created_at: string;
   updated_at: string;
+}
+
+// User Goals for persistent goal tracking
+export interface UserGoal {
+  id: string;
+  user_id: string;
+  team_member_id: string | null;
+  goal_type: "monthly" | "weekly" | "custom";
+  goal_amount: number;
+  target_aov: number;
+  target_show_rate: number;
+  target_close_rate: number;
+  target_response_rate: number;
+  target_convo_rate: number;
+  target_booking_rate: number;
+  target_cash_per_booking: number;
+  period_start: string | null;
+  period_end: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Outcome tracking (source of truth for deals)
+export interface Outcome {
+  id: string;
+  client_id: string;
+  scheduled_call_id: string | null;
+  lead_name: string;
+  lead_email: string | null;
+  lead_phone: string | null;
+  outcome_type: "close" | "no_show" | "follow_up" | "deal_lost";
+  outcome_date: string;
+  closer_id: string | null;
+  closer_name: string | null;
+  setter_id: string | null;
+  setter_name: string | null;
+  // Close-specific
+  cash_collected: number;
+  package_total: number;
+  payment_type: "pif" | "payment_plan" | null;
+  payment_months: number | null;
+  amount_per_period: number | null;
+  current_situation: string | null;
+  desired_situation: string | null;
+  obstacles: string | null;
+  // No Show / Deal Lost
+  reason: string | null;
+  // Follow Up
+  follow_up_date: string | null;
+  follow_up_reason: string | null;
+  deposit_amount: number;
+  // Integration tracking
+  close_crm_synced: boolean;
+  close_crm_lead_id: string | null;
+  slack_notified: boolean;
+  // Metadata
+  created_at: string;
+  created_by: string | null;
 }
 
 export interface DashboardStats {

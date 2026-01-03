@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { Navbar } from "./Navbar";
-import { ArrowLeft, ChevronLeft, ChevronRight, Phone, Clock, Check, X, AlertCircle } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Phone, Clock, Check, X, AlertCircle, ClipboardList } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type { ScheduledCall } from "@/types/database";
 import { formatCurrency } from "@/lib/utils";
+import { OutcomeModal } from "./OutcomeModal";
 
 interface CallsTodayDashboardProps {
   userName: string;
@@ -60,6 +61,30 @@ export function CallsTodayDashboard({
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [calls, setCalls] = useState<ScheduledCall[]>(initialCalls);
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedCall, setSelectedCall] = useState<ScheduledCall | null>(null);
+  const [showOutcomeModal, setShowOutcomeModal] = useState(false);
+
+  const handleLogOutcome = (call: ScheduledCall) => {
+    setSelectedCall(call);
+    setShowOutcomeModal(true);
+  };
+
+  const handleOutcomeSubmitted = () => {
+    setShowOutcomeModal(false);
+    setSelectedCall(null);
+    // Refresh calls to show updated status
+    const supabase = createClient();
+    const dateStr = getDateString(selectedDate);
+    supabase
+      .from("scheduled_calls")
+      .select("*")
+      .eq("client_id", clientId)
+      .eq("call_date", dateStr)
+      .order("call_time", { ascending: true })
+      .then(({ data }) => {
+        if (data) setCalls(data);
+      });
+  };
 
   // Calculate total potential
   const totalPotential = calls.reduce((acc, call) => {
@@ -366,10 +391,10 @@ export function CallsTodayDashboard({
                     )}
                   </div>
 
-                  {/* Closer */}
-                  <div className="flex-shrink-0 text-right">
+                  {/* Closer + Log Outcome */}
+                  <div className="flex-shrink-0 text-right flex flex-col items-end gap-2">
                     <p className="text-sm text-white/70">{call.closer_name}</p>
-                    {call.status !== "scheduled" && (
+                    {call.status !== "scheduled" ? (
                       <span
                         className={`text-xs px-2 py-0.5 rounded-full ${
                           call.status === "completed"
@@ -381,12 +406,33 @@ export function CallsTodayDashboard({
                       >
                         {call.status === "no_show" ? "No Show" : call.status}
                       </span>
+                    ) : (
+                      <button
+                        onClick={() => handleLogOutcome(call)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-500 text-black text-xs font-medium rounded-lg hover:bg-green-400 transition-colors"
+                      >
+                        <ClipboardList className="w-3.5 h-3.5" />
+                        Log Outcome
+                      </button>
                     )}
                   </div>
                 </div>
               </div>
             ))}
           </div>
+        )}
+
+        {/* Outcome Modal */}
+        {showOutcomeModal && selectedCall && (
+          <OutcomeModal
+            call={selectedCall}
+            clientId={clientId}
+            onClose={() => {
+              setShowOutcomeModal(false);
+              setSelectedCall(null);
+            }}
+            onSubmitted={handleOutcomeSubmitted}
+          />
         )}
       </main>
     </div>

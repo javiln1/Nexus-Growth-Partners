@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Users, TrendingUp, DollarSign, MessageCircle, Phone, Target, ArrowLeft } from "lucide-react";
+import { Users, TrendingUp, TrendingDown, DollarSign, MessageCircle, Phone, Target, ArrowLeft, Trophy } from "lucide-react";
 import Link from "next/link";
 import { TrackerCard } from "./TrackerCard";
 import { Navbar } from "./Navbar";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, calculatePercentChange } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 
 type Period = "today" | "7d" | "30d" | "90d";
@@ -15,6 +15,23 @@ interface AggregateStats {
   revenue: number;
   closes: number;
   aov: number;
+  prevCashCollected: number;
+  prevRevenue: number;
+  prevCloses: number;
+}
+
+function ChangeIndicator({ current, previous }: { current: number; previous: number }) {
+  const change = calculatePercentChange(current, previous);
+  const isPositive = change >= 0;
+
+  if (previous === 0 && current === 0) return null;
+
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+      {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+      {isPositive ? '+' : ''}{change.toFixed(0)}%
+    </span>
+  );
 }
 
 interface DashboardHomeProps {
@@ -50,6 +67,24 @@ function getDateFromPeriod(period: Period): string {
   }
 }
 
+function getPrevPeriodDate(period: Period): string {
+  const date = new Date();
+  switch (period) {
+    case "today":
+      date.setDate(date.getDate() - 1);
+      return date.toISOString().split("T")[0];
+    case "7d":
+      date.setDate(date.getDate() - 14);
+      return date.toISOString().split("T")[0];
+    case "30d":
+      date.setDate(date.getDate() - 60);
+      return date.toISOString().split("T")[0];
+    case "90d":
+      date.setDate(date.getDate() - 180);
+      return date.toISOString().split("T")[0];
+  }
+}
+
 function getPeriodLabel(period: Period): string {
   switch (period) {
     case "today":
@@ -76,15 +111,22 @@ export function DashboardHome({ userName, clientId, clientName, isExecutive, isD
       setIsLoading(true);
       const supabase = createClient();
       const fromDate = getDateFromPeriod(period);
+      const prevFromDate = getPrevPeriodDate(period);
       const today = new Date().toISOString().split("T")[0];
 
-      // Fetch funnel stats and today's calls in parallel
-      const [funnelResult, callsResult] = await Promise.all([
+      // Fetch funnel stats, previous period stats, and today's calls in parallel
+      const [funnelResult, prevFunnelResult, callsResult] = await Promise.all([
         supabase
           .from("vsl_funnel_reports")
           .select("cash_collected, revenue, closes")
           .eq("client_id", clientId)
           .gte("report_date", fromDate),
+        supabase
+          .from("vsl_funnel_reports")
+          .select("cash_collected, revenue, closes")
+          .eq("client_id", clientId)
+          .gte("report_date", prevFromDate)
+          .lt("report_date", fromDate),
         supabase
           .from("scheduled_calls")
           .select("id, confirmed")
@@ -92,21 +134,31 @@ export function DashboardHome({ userName, clientId, clientName, isExecutive, isD
           .eq("call_date", today),
       ]);
 
-      if (funnelResult.data) {
-        const totals = funnelResult.data.reduce(
-          (acc, row) => ({
-            cashCollected: acc.cashCollected + (row.cash_collected || 0),
-            revenue: acc.revenue + (row.revenue || 0),
-            closes: acc.closes + (row.closes || 0),
-          }),
-          { cashCollected: 0, revenue: 0, closes: 0 }
-        );
+      const totals = (funnelResult.data || []).reduce(
+        (acc, row) => ({
+          cashCollected: acc.cashCollected + (row.cash_collected || 0),
+          revenue: acc.revenue + (row.revenue || 0),
+          closes: acc.closes + (row.closes || 0),
+        }),
+        { cashCollected: 0, revenue: 0, closes: 0 }
+      );
 
-        setStats({
-          ...totals,
-          aov: totals.closes > 0 ? totals.cashCollected / totals.closes : 0,
-        });
-      }
+      const prevTotals = (prevFunnelResult.data || []).reduce(
+        (acc, row) => ({
+          cashCollected: acc.cashCollected + (row.cash_collected || 0),
+          revenue: acc.revenue + (row.revenue || 0),
+          closes: acc.closes + (row.closes || 0),
+        }),
+        { cashCollected: 0, revenue: 0, closes: 0 }
+      );
+
+      setStats({
+        ...totals,
+        aov: totals.closes > 0 ? totals.cashCollected / totals.closes : 0,
+        prevCashCollected: prevTotals.cashCollected,
+        prevRevenue: prevTotals.revenue,
+        prevCloses: prevTotals.closes,
+      });
 
       if (callsResult.data) {
         setTodaysCalls({
@@ -183,18 +235,27 @@ export function DashboardHome({ userName, clientId, clientName, isExecutive, isD
                 <p className="text-2xl font-semibold text-green-500">
                   {formatCurrency(stats.cashCollected)}
                 </p>
+                <div className="mt-1">
+                  <ChangeIndicator current={stats.cashCollected} previous={stats.prevCashCollected} />
+                </div>
               </div>
               <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
                 <p className="text-white/50 text-sm mb-1">Revenue</p>
                 <p className="text-2xl font-semibold text-white">
                   {formatCurrency(stats.revenue)}
                 </p>
+                <div className="mt-1">
+                  <ChangeIndicator current={stats.revenue} previous={stats.prevRevenue} />
+                </div>
               </div>
               <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
                 <p className="text-white/50 text-sm mb-1">Closes</p>
                 <p className="text-2xl font-semibold text-white">
                   {stats.closes}
                 </p>
+                <div className="mt-1">
+                  <ChangeIndicator current={stats.closes} previous={stats.prevCloses} />
+                </div>
               </div>
               <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
                 <p className="text-white/50 text-sm mb-1">AOV</p>
@@ -225,8 +286,9 @@ export function DashboardHome({ userName, clientId, clientName, isExecutive, isD
           )}
         </div>
 
-        {/* Calls Today Quick Stat */}
-        <div className="mb-8">
+        {/* Quick Links */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+          {/* Calls Today Quick Stat */}
           <a
             href={`${basePath}/calls-today`}
             className="block bg-white/[0.03] border border-white/10 rounded-lg p-4 hover:border-white/20 transition-colors"
@@ -251,6 +313,25 @@ export function DashboardHome({ userName, clientId, clientName, isExecutive, isD
               <span className="text-white/30 text-sm">View →</span>
             </div>
           </a>
+
+          {/* Team Leaderboard */}
+          <Link
+            href="/dashboard/leaderboard"
+            className="block bg-white/[0.03] border border-white/10 rounded-lg p-4 hover:border-white/20 transition-colors"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center">
+                  <Trophy className="w-5 h-5 text-yellow-500" />
+                </div>
+                <div>
+                  <p className="text-sm text-white/50">Team Leaderboard</p>
+                  <p className="text-xl font-semibold">Rankings</p>
+                </div>
+              </div>
+              <span className="text-white/30 text-sm">View →</span>
+            </div>
+          </Link>
         </div>
 
         {/* Active Trackers */}
