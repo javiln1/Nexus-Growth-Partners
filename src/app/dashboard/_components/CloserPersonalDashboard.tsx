@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
+import Link from "next/link";
 import { Navbar } from "./Navbar";
-import { Trophy, Target, Phone, DollarSign } from "lucide-react";
+import { Trophy, Target, Phone, DollarSign, FileText } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { BENCHMARKS, getMetricStatus } from "@/lib/benchmarks";
 import type { CloserReport } from "@/types/database";
@@ -81,16 +82,25 @@ export function CloserPersonalDashboard({
             </div>
           </div>
 
-          {/* Rank Badge */}
-          {rank > 0 && (
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-              <Trophy className="w-5 h-5 text-amber-500" />
-              <span className="text-amber-500 font-medium">
-                #{rank} of {totalClosers} closers
-              </span>
-              <span className="text-white/40 text-sm">(by cash collected)</span>
-            </div>
-          )}
+          {/* Rank Badge & Submit Button */}
+          <div className="flex flex-wrap items-center gap-3">
+            {rank > 0 && (
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                <Trophy className="w-5 h-5 text-amber-500" />
+                <span className="text-amber-500 font-medium">
+                  #{rank} of {totalClosers} closers
+                </span>
+                <span className="text-white/40 text-sm">(by cash collected)</span>
+              </div>
+            )}
+            <Link
+              href="/dashboard/submit-eod"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-green-500 text-black font-medium rounded-lg hover:bg-green-400 transition-colors"
+            >
+              <FileText className="w-4 h-4" />
+              Submit EOD Report
+            </Link>
+          </div>
         </div>
 
         {/* Key Metrics */}
